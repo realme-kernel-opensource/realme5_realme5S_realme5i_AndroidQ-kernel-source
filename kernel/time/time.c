@@ -871,7 +871,9 @@ struct timespec timespec_add_safe(const struct timespec lhs,
 
 	return res;
 }
-
+#ifdef VENDOR_EDIT
+EXPORT_SYMBOL(timespec_add_safe);
+#endif
 /*
  * Add two timespec64 values and do a safety check for overflow.
  * It's assumed that both values are valid (>= 0).

@@ -26,6 +26,10 @@
 #define RPM_STATS_NUM_REC	2
 #define MSM_ARCH_TIMER_FREQ	19200000
 
+#ifdef VENDOR_EDIT
+struct kobject *rpmstats_kobj_oppo = NULL;
+#endif
+
 #define GET_PDATA_OF_ATTR(attr) \
 	(container_of(attr, struct msm_rpmstats_kobj_attr, ka)->pd)
 
@@ -254,6 +258,9 @@ static int msm_rpmstats_create_sysfs(struct platform_device *pdev,
 	struct kobject *rpmstats_kobj = NULL;
 	struct msm_rpmstats_kobj_attr *rpms_ka = NULL;
 	int ret = 0;
+#ifdef VENDOR_EDIT
+	struct msm_rpmstats_kobj_attr *rpms_ka_oppo = NULL;
+#endif
 
 	rpmstats_kobj = kobject_create_and_add("system_sleep", power_kobj);
 	if (!rpmstats_kobj) {
@@ -279,6 +286,26 @@ static int msm_rpmstats_create_sysfs(struct platform_device *pdev,
 	rpms_ka->ka.store = NULL;
 
 	ret = sysfs_create_file(rpmstats_kobj, &rpms_ka->ka.attr);
+#ifdef VENDOR_EDIT
+
+	rpms_ka_oppo = kzalloc(sizeof(*rpms_ka_oppo), GFP_KERNEL);
+	if (!rpms_ka_oppo) {
+		kobject_put(rpmstats_kobj_oppo);
+		ret = -ENOMEM;
+		goto fail;
+	}
+	rpms_ka_oppo->kobj = rpmstats_kobj;
+
+	sysfs_attr_init(&rpms_ka_oppo->ka.attr);
+	rpms_ka_oppo->pd = pd;
+	rpms_ka_oppo->ka.attr.mode = 0444;
+	rpms_ka_oppo->ka.attr.name = "oppo_rpmh_stats";
+	rpms_ka_oppo->ka.show = rpmstats_show;
+	rpms_ka_oppo->ka.store = NULL;
+
+	ret = sysfs_create_file(rpmstats_kobj, &rpms_ka_oppo->ka.attr);
+#endif
+
 	platform_set_drvdata(pdev, rpms_ka);
 
 fail:

@@ -71,7 +71,12 @@ module_param(bss_entries_limit, int, 0644);
 MODULE_PARM_DESC(bss_entries_limit,
                  "limit to number of scan BSS entries (per wiphy, default 1000)");
 
+#ifndef VENDOR_EDIT
+//Modify for make scan result cache more time
+#define IEEE80211_SCAN_RESULT_EXPIRE	(7 * HZ)
+#else
 #define IEEE80211_SCAN_RESULT_EXPIRE	(30 * HZ)
+#endif  /*VENDOR_EDIT*/
 
 static void bss_free(struct cfg80211_internal_bss *bss)
 {
@@ -484,8 +489,6 @@ const u8 *cfg80211_find_ie_match(u8 eid, const u8 *ies, int len,
 				 const u8 *match, int match_len,
 				 int match_offset)
 {
-	const struct element *elem;
-
 	/* match_offset can't be smaller than 2, unless match_len is
 	 * zero, in which case match_offset must be zero as well.
 	 */
@@ -493,10 +496,14 @@ const u8 *cfg80211_find_ie_match(u8 eid, const u8 *ies, int len,
 		    (!match_len && match_offset)))
 		return NULL;
 
-	for_each_element_id(elem, eid, ies, len) {
-		if (elem->datalen >= match_offset - 2 + match_len &&
-		    !memcmp(elem->data + match_offset - 2, match, match_len))
-			return (void *)elem;
+	while (len >= 2 && len >= ies[1] + 2) {
+		if ((ies[0] == eid) &&
+		    (ies[1] + 2 >= match_offset + match_len) &&
+		    !memcmp(ies + match_offset, match, match_len))
+			return ies;
+
+		len -= ies[1] + 2;
+		ies += ies[1] + 2;
 	}
 
 	return NULL;

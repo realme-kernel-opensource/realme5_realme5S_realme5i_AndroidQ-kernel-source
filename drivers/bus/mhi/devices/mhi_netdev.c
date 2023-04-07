@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,10 +33,17 @@
 
 #ifdef CONFIG_MHI_DEBUG
 
+#define IPC_LOG_LVL (MHI_MSG_LVL_VERBOSE)
+
+#define MHI_ASSERT(cond, msg) do { \
+	if (cond) \
+		panic(msg); \
+} while (0)
+
 #define MSG_VERB(fmt, ...) do { \
 	if (mhi_netdev->msg_lvl <= MHI_MSG_LVL_VERBOSE) \
 		pr_err("[D][%s] " fmt, __func__, ##__VA_ARGS__);\
-	if (mhi_netdev->ipc_log && (*mhi_netdev->ipc_log_lvl <= \
+	if (mhi_netdev->ipc_log && (mhi_netdev->ipc_log_lvl <= \
 				    MHI_MSG_LVL_VERBOSE)) \
 		ipc_log_string(mhi_netdev->ipc_log, "[D][%s] " fmt, \
 			       __func__, ##__VA_ARGS__); \
@@ -44,19 +51,23 @@
 
 #else
 
-#define MSG_VERB(fmt, ...) do { \
-	if (mhi_netdev->ipc_log && (*mhi_netdev->ipc_log_lvl <= \
-				    MHI_MSG_LVL_VERBOSE)) \
-		ipc_log_string(mhi_netdev->ipc_log, "[D][%s] " fmt, \
-			       __func__, ##__VA_ARGS__); \
+#define IPC_LOG_LVL (MHI_MSG_LVL_ERROR)
+
+#define MHI_ASSERT(cond, msg) do { \
+	if (cond) { \
+		MSG_ERR(msg); \
+		WARN_ON(cond); \
+	} \
 } while (0)
+
+#define MSG_VERB(fmt, ...)
 
 #endif
 
 #define MSG_LOG(fmt, ...) do { \
 	if (mhi_netdev->msg_lvl <= MHI_MSG_LVL_INFO) \
 		pr_err("[I][%s] " fmt, __func__, ##__VA_ARGS__);\
-	if (mhi_netdev->ipc_log && (*mhi_netdev->ipc_log_lvl <= \
+	if (mhi_netdev->ipc_log && (mhi_netdev->ipc_log_lvl <= \
 				    MHI_MSG_LVL_INFO)) \
 		ipc_log_string(mhi_netdev->ipc_log, "[I][%s] " fmt, \
 			       __func__, ##__VA_ARGS__); \
@@ -65,15 +76,10 @@
 #define MSG_ERR(fmt, ...) do { \
 	if (mhi_netdev->msg_lvl <= MHI_MSG_LVL_ERROR) \
 		pr_err("[E][%s] " fmt, __func__, ##__VA_ARGS__); \
-	if (mhi_netdev->ipc_log && (*mhi_netdev->ipc_log_lvl <= \
+	if (mhi_netdev->ipc_log && (mhi_netdev->ipc_log_lvl <= \
 				    MHI_MSG_LVL_ERROR)) \
 		ipc_log_string(mhi_netdev->ipc_log, "[E][%s] " fmt, \
 			       __func__, ##__VA_ARGS__); \
-} while (0)
-
-#define MHI_ASSERT(cond, msg) do { \
-	if (cond) \
-		panic(msg); \
 } while (0)
 
 struct mhi_net_chain {
@@ -109,12 +115,11 @@ struct mhi_netdev {
 
 	struct dentry *dentry;
 	enum MHI_DEBUG_LEVEL msg_lvl;
-	enum MHI_DEBUG_LEVEL *ipc_log_lvl;
+	enum MHI_DEBUG_LEVEL ipc_log_lvl;
 	void *ipc_log;
 
 	/* debug stats */
 	u32 abuffers, kbuffers, rbuffers;
-	bool napi_scheduled;
 };
 
 struct mhi_netdev_priv {
@@ -453,7 +458,6 @@ static int mhi_netdev_alloc_thread(void *data)
 
 		/* replenish the ring */
 		napi_schedule(mhi_netdev->napi);
-		mhi_netdev->napi_scheduled = true;
 
 		/* wait for buffers to run low or thread to stop */
 		wait_event_interruptible(mhi_netdev->alloc_event,
@@ -493,7 +497,6 @@ static int mhi_netdev_poll(struct napi_struct *napi, int budget)
 	if (rx_work < 0) {
 		MSG_ERR("Error polling ret:%d\n", rx_work);
 		napi_complete(napi);
-		mhi_netdev->napi_scheduled = false;
 		return 0;
 	}
 
@@ -504,10 +507,8 @@ static int mhi_netdev_poll(struct napi_struct *napi, int budget)
 		mhi_netdev_queue(mhi_netdev, rsc_dev->mhi_dev);
 
 	/* complete work if # of packet processed less than allocated budget */
-	if (rx_work < budget) {
+	if (rx_work < budget)
 		napi_complete(napi);
-		mhi_netdev->napi_scheduled = false;
-	}
 
 	MSG_VERB("polled %d pkts\n", rx_work);
 
@@ -843,7 +844,6 @@ static void mhi_netdev_status_cb(struct mhi_device *mhi_dev, enum MHI_CB mhi_cb)
 		return;
 
 	napi_schedule(mhi_netdev->napi);
-	mhi_netdev->napi_scheduled = true;
 }
 
 #ifdef CONFIG_DEBUG_FS
@@ -924,7 +924,7 @@ static void mhi_netdev_create_debugfs_dir(void)
 
 #else
 
-static void mhi_netdev_create_debugfs(struct mhi_netdev *mhi_netdev)
+static void mhi_netdev_create_debugfs(struct mhi_netdev_private *mhi_netdev)
 {
 }
 
@@ -984,7 +984,6 @@ static int mhi_netdev_probe(struct mhi_device *mhi_dev,
 	int ret;
 	struct mhi_netdev *mhi_netdev, *p_netdev = NULL;
 	struct device_node *of_node = mhi_dev->dev.of_node;
-	struct mhi_controller *mhi_cntrl = mhi_dev->mhi_cntrl;
 	int nr_tre;
 	char node_name[32];
 	struct device_node *phandle;
@@ -1092,7 +1091,7 @@ static int mhi_netdev_probe(struct mhi_device *mhi_dev,
 			 mhi_netdev->alias);
 		mhi_netdev->ipc_log = ipc_log_context_create(IPC_LOG_PAGES,
 							     node_name, 0);
-		mhi_netdev->ipc_log_lvl = &mhi_cntrl->log_lvl;
+		mhi_netdev->ipc_log_lvl = IPC_LOG_LVL;
 
 		mhi_netdev_create_debugfs(mhi_netdev);
 	}
@@ -1105,7 +1104,6 @@ static int mhi_netdev_probe(struct mhi_device *mhi_dev,
 	 * by triggering a napi_poll
 	 */
 	napi_schedule(mhi_netdev->napi);
-	mhi_netdev->napi_scheduled = true;
 
 	return 0;
 }
@@ -1113,8 +1111,6 @@ static int mhi_netdev_probe(struct mhi_device *mhi_dev,
 static const struct mhi_device_id mhi_netdev_match_table[] = {
 	{ .chan = "IP_HW0" },
 	{ .chan = "IP_HW0_RSC" },
-	{ .chan = "IP_SW0" },
-	{ .chan = "IP_HW1" },
 	{},
 };
 

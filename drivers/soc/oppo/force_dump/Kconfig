@@ -1,0 +1,4 @@
+config OPPO_FORCE_DUMP
+  bool "config oppo dump"
+  help
+	define this config to force dump.

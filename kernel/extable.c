@@ -35,6 +35,11 @@
  */
 DEFINE_MUTEX(text_mutex);
 
+#ifdef VENDOR_EDIT
+#ifdef CONFIG_QIHOO
+extern const struct exception_table_entry *search_qihoo_patch_extables(unsigned long addr);
+#endif
+#endif /* VENDOR_EDIT */
 extern struct exception_table_entry __start___ex_table[];
 extern struct exception_table_entry __stop___ex_table[];
 

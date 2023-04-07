@@ -732,13 +732,9 @@ __SYSCALL(__NR_pkey_alloc,    sys_pkey_alloc)
 __SYSCALL(__NR_pkey_free,     sys_pkey_free)
 #define __NR_statx 291
 __SYSCALL(__NR_statx,     sys_statx)
-#define __NR_pidfd_send_signal 424
-__SYSCALL(__NR_pidfd_send_signal, sys_pidfd_send_signal)
-#define __NR_pidfd_open 434
-__SYSCALL(__NR_pidfd_open, sys_pidfd_open)
 
 #undef __NR_syscalls
-#define __NR_syscalls 435
+#define __NR_syscalls 292
 
 /*
  * All syscalls below here should go away really,

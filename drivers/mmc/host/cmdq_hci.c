@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, 2020 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,11 +28,14 @@
 #include <linux/fault-inject.h>
 #include <linux/random.h>
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for record emmc  driver iowait
+#include <soc/oppo/oppo_healthinfo.h>
+#endif /*VENDOR_EDIT*/
+
 #include "cmdq_hci.h"
-#include "cmdq_hci-crypto.h"
 #include "sdhci.h"
 #include "sdhci-msm.h"
-#include "../core/queue.h"
 
 #define DCMD_SLOT 31
 #define NUM_SLOTS 32
@@ -279,8 +282,6 @@ static void cmdq_dumpregs(struct cmdq_host *cq_host)
 	       cmdq_readl(cq_host, CQ_VENDOR_CFG + offset));
 	pr_err(DRV_NAME ": ===========================================\n");
 
-	cmdq_crypto_debug(cq_host);
-
 	cmdq_dump_task_history(cq_host);
 	if (cq_host->ops->dump_vendor_regs)
 		cq_host->ops->dump_vendor_regs(mmc);
@@ -380,6 +381,7 @@ static int cmdq_enable(struct mmc_host *mmc)
 {
 	int err = 0;
 	u32 cqcfg;
+	u32 cqcap = 0;
 	bool dcmd_enable;
 	struct cmdq_host *cq_host = mmc_cmdq_private(mmc);
 
@@ -408,10 +410,18 @@ static int cmdq_enable(struct mmc_host *mmc)
 	cqcfg = ((cq_host->caps & CMDQ_TASK_DESC_SZ_128 ? CQ_TASK_DESC_SZ : 0) |
 			(dcmd_enable ? CQ_DCMD : 0));
 
-	if (cmdq_host_is_crypto_supported(cq_host)) {
-		cmdq_crypto_enable(cq_host);
+	cqcap = cmdq_readl(cq_host, CQCAP);
+	if (cqcap & CQCAP_CS) {
+		/*
+		 * In case host controller supports cryptographic operations
+		 * then, it uses 128bit task descriptor. Upper 64 bits of task
+		 * descriptor would be used to pass crypto specific informaton.
+		 */
+		cq_host->caps |= CMDQ_CAP_CRYPTO_SUPPORT |
+				 CMDQ_TASK_DESC_SZ_128;
 		cqcfg |= CQ_ICE_ENABLE;
-		/* For SDHC v5.0 onwards, ICE 3.0 specific registers are added
+		/*
+		 * For SDHC v5.0 onwards, ICE 3.0 specific registers are added
 		 * in CQ register space, due to which few CQ registers are
 		 * shifted. Set offset_changed boolean to use updated address.
 		 */
@@ -487,9 +497,6 @@ static void cmdq_disable_nosync(struct mmc_host *mmc, bool soft)
 {
 	struct cmdq_host *cq_host = (struct cmdq_host *)mmc_cmdq_private(mmc);
 
-	if (cmdq_host_is_crypto_supported(cq_host))
-		cmdq_crypto_disable(cq_host);
-
 	if (soft) {
 		cmdq_writel(cq_host, cmdq_readl(
 				    cq_host, CQCFG) & ~(CQ_ENABLE),
@@ -529,8 +536,6 @@ static void cmdq_reset(struct mmc_host *mmc, bool soft)
 
 	cmdq_disable(mmc, true);
 
-	cmdq_crypto_reset(cq_host);
-
 	if (cq_host->ops->reset) {
 		ret = cq_host->ops->reset(mmc);
 		if (ret) {
@@ -558,29 +563,6 @@ static void cmdq_reset(struct mmc_host *mmc, bool soft)
 	cmdq_runtime_pm_put(cq_host);
 	cq_host->enabled = true;
 	mmc_host_clr_cq_disable(mmc);
-}
-
-static inline void cmdq_prep_crypto_desc(struct cmdq_host *cq_host,
-					  u64 *task_desc, u64 ice_ctx)
-{
-	u64 *ice_desc = NULL;
-
-	if (cq_host->caps & CMDQ_CAP_CRYPTO_SUPPORT) {
-		/*
-		 * Get the address of ice context for the given task descriptor.
-		 * ice context is present in the upper 64bits of task descriptor
-		 * ice_conext_base_address = task_desc + 8-bytes
-		 */
-		ice_desc = (u64 *)((u8 *)task_desc +
-				   CQ_TASK_DESC_ICE_PARAM_OFFSET);
-		memset(ice_desc, 0, CQ_TASK_DESC_ICE_PARAMS_SIZE);
-
-		/*
-		 *  Assign upper 64bits data of task descritor with ice context
-		 */
-		if (ice_ctx)
-			*ice_desc = ice_ctx;
-	}
 }
 
 static void cmdq_prep_task_desc(struct mmc_request *mrq,
@@ -761,6 +743,30 @@ static void cmdq_prep_dcmd_desc(struct mmc_host *mmc,
 		upper_32_bits(*task_desc));
 }
 
+static inline
+void cmdq_prep_crypto_desc(struct cmdq_host *cq_host, u64 *task_desc,
+			u64 ice_ctx)
+{
+	u64 *ice_desc = NULL;
+
+	if (cq_host->caps & CMDQ_CAP_CRYPTO_SUPPORT) {
+		/*
+		 * Get the address of ice context for the given task descriptor.
+		 * ice context is present in the upper 64bits of task descriptor
+		 * ice_conext_base_address = task_desc + 8-bytes
+		 */
+		ice_desc = (__le64 *)((u8 *)task_desc +
+						CQ_TASK_DESC_TASK_PARAMS_SIZE);
+		memset(ice_desc, 0, CQ_TASK_DESC_ICE_PARAMS_SIZE);
+
+		/*
+		 *  Assign upper 64bits data of task descritor with ice context
+		 */
+		if (ice_ctx)
+			*ice_desc = cpu_to_le64(ice_ctx);
+	}
+}
+
 static void cmdq_pm_qos_vote(struct sdhci_host *host, struct mmc_request *mrq)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
@@ -803,12 +809,14 @@ static int cmdq_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		goto ring_doorbell;
 	}
 
-	err = cmdq_crypto_get_ctx(cq_host, mrq, &ice_ctx);
-	if (err) {
-		mmc->err_stats[MMC_ERR_ICE_CFG]++;
-		pr_err("%s: failed to retrieve crypto ctx for tag %d\n",
-			mmc_hostname(mmc), tag);
-		goto ice_err;
+	if (cq_host->ops->crypto_cfg) {
+		err = cq_host->ops->crypto_cfg(mmc, mrq, tag, &ice_ctx);
+		if (err) {
+			mmc->err_stats[MMC_ERR_ICE_CFG]++;
+			pr_err("%s: failed to configure crypto: err %d tag %d\n",
+					mmc_hostname(mmc), err, tag);
+			goto ice_err;
+		}
 	}
 
 	task_desc = (__le64 __force *)get_desc(cq_host, tag);
@@ -825,7 +833,7 @@ static int cmdq_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	if (err) {
 		pr_err("%s: %s: failed to setup tx desc: %d\n",
 		       mmc_hostname(mmc), __func__, err);
-		goto out;
+		goto desc_err;
 	}
 
 	cq_host->mrq_slot[tag] = mrq;
@@ -840,6 +848,9 @@ ring_doorbell:
 		cmdq_dumpregs(cq_host);
 		BUG_ON(1);
 	}
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+	mrq->cmdq_request_time_start = ktime_get();
+#endif
 	MMC_TRACE(mmc, "%s: tag: %d\n", __func__, tag);
 	cmdq_writel(cq_host, 1 << tag, CQTDBR);
 	/* Commit the doorbell write immediately */
@@ -847,10 +858,20 @@ ring_doorbell:
 
 	return err;
 
+desc_err:
+	if (cq_host->ops->crypto_cfg_end) {
+		err = cq_host->ops->crypto_cfg_end(mmc, mrq);
+		if (err) {
+			pr_err("%s: failed to end ice config: err %d tag %d\n",
+					mmc_hostname(mmc), err, tag);
+		}
+	}
+	if (!(cq_host->caps & CMDQ_CAP_CRYPTO_SUPPORT) &&
+			cq_host->ops->crypto_cfg_reset)
+		cq_host->ops->crypto_cfg_reset(mmc, tag);
 ice_err:
 	if (err)
 		cmdq_runtime_pm_put(cq_host);
-
 out:
 	return err;
 }
@@ -860,14 +881,13 @@ static void cmdq_finish_data(struct mmc_host *mmc, unsigned int tag)
 	struct mmc_request *mrq;
 	struct cmdq_host *cq_host = (struct cmdq_host *)mmc_cmdq_private(mmc);
 	int offset = 0;
+	int err = 0;
 
 	if (cq_host->offset_changed)
 		offset = CQ_V5_VENDOR_CFG;
 	mrq = get_req_by_tag(cq_host, tag);
 	if (tag == cq_host->dcmd_slot)
 		mrq->cmd->resp[0] = cmdq_readl(cq_host, CQCRDCT);
-
-	cmdq_complete_crypto_desc(cq_host, mrq, NULL);
 
 	if (mrq->cmdq_req->cmdq_req_flags & DCMD)
 		cmdq_writel(cq_host,
@@ -876,6 +896,18 @@ static void cmdq_finish_data(struct mmc_host *mmc, unsigned int tag)
 
 	cmdq_runtime_pm_put(cq_host);
 
+	if (!(mrq->cmdq_req->cmdq_req_flags & DCMD)) {
+		if (cq_host->ops->crypto_cfg_end) {
+			err = cq_host->ops->crypto_cfg_end(mmc, mrq);
+			if (err) {
+				pr_err("%s: failed to end ice config: err %d tag %d\n",
+						mmc_hostname(mmc), err, tag);
+			}
+		}
+	}
+	if (!(cq_host->caps & CMDQ_CAP_CRYPTO_SUPPORT) &&
+			cq_host->ops->crypto_cfg_reset)
+		cq_host->ops->crypto_cfg_reset(mmc, tag);
 	mrq->done(mrq);
 }
 
@@ -914,6 +946,12 @@ static int cmdq_should_inject_err(struct mmc_host *mmc, int *err,
 	return false;
 }
 #endif
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for record  emmc  driver iowait
+extern void ohm_schedstats_record(int sched_type, int fg, u64 delta_ms);
+extern int ohm_flash_type;
+#endif /*VENDOR_EDIT*/
 
 irqreturn_t cmdq_irq(struct mmc_host *mmc, int err)
 {
@@ -1151,6 +1189,13 @@ skip_cqterri:
 				mrq->cmdq_req->resp_err ||
 				(mrq->data && mrq->data->error))) {
 				/* complete the corresponding mrq */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for record emmc driver io wait
+                if (OHM_FLASH_TYPE_EMC == ohm_flash_type) {
+                	ohm_schedstats_record(OHM_SCHED_EMMCIO, current_is_fg(),
+                    ktime_ms_delta(ktime_get(), mrq->cmdq_request_time_start));
+                }
+#endif /*VENDOR_EDIT*/
 				pr_debug("%s: completing tag -> %lu\n",
 					 mmc_hostname(mmc), tag);
 				MMC_TRACE(mmc, "%s: completing tag -> %lu\n",
@@ -1336,20 +1381,6 @@ static int cmdq_late_init(struct mmc_host *mmc)
 	return 0;
 }
 
-static void cqhci_crypto_update_queue(struct mmc_host *mmc,
-					struct request_queue *queue)
-{
-	struct cmdq_host *cq_host = (struct cmdq_host *)mmc_cmdq_private(mmc);
-
-	if (cq_host->caps & CMDQ_CAP_CRYPTO_SUPPORT) {
-		if (queue)
-			cmdq_crypto_setup_rq_keyslot_manager(cq_host, queue);
-		else
-			pr_err("%s can not register keyslot manager\n",
-				__func__);
-	}
-}
-
 static const struct mmc_cmdq_host_ops cmdq_host_ops = {
 	.init = cmdq_late_init,
 	.enable = cmdq_enable,
@@ -1359,7 +1390,6 @@ static const struct mmc_cmdq_host_ops cmdq_host_ops = {
 	.halt = cmdq_halt,
 	.reset	= cmdq_reset,
 	.dumpstate = cmdq_dumpstate,
-	.cqe_crypto_update_queue = cqhci_crypto_update_queue,
 };
 
 struct cmdq_host *cmdq_pltfm_init(struct platform_device *pdev)
@@ -1413,10 +1443,6 @@ int cmdq_init(struct cmdq_host *cq_host, struct mmc_host *mmc,
 				sizeof(cq_host->mrq_slot), GFP_KERNEL);
 	if (!cq_host->mrq_slot)
 		return -ENOMEM;
-
-	err = cmdq_host_init_crypto(cq_host);
-	if (err)
-		pr_err("%s: CMDQ Crypto init failed err %d\n", err);
 
 	init_completion(&cq_host->halt_comp);
 	return err;

@@ -1444,8 +1444,17 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 	rc = msm_camera_request_gpio_table(
 		ctrl->gpio_conf->cam_gpio_req_tbl,
 		ctrl->gpio_conf->cam_gpio_req_tbl_size, 1);
-	if (rc < 0)
+	if (rc < 0){
 		no_gpio = rc;
+	} else {
+		if (ctrl->cam_pinctrl_status) {
+		ret = pinctrl_select_state(ctrl->pinctrl_info.pinctrl,
+		ctrl->pinctrl_info.gpio_state_active);
+		if (ret)
+		pr_err("%s:%d cannot set pin to active state",
+		__func__, __LINE__);
+	}
+	}
 	if (ctrl->cam_pinctrl_status) {
 		ret = pinctrl_select_state(ctrl->pinctrl_info.pinctrl,
 			ctrl->pinctrl_info.gpio_state_active);

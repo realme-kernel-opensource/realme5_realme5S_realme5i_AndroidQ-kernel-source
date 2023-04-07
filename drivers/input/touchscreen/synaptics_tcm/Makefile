@@ -14,3 +14,8 @@ obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM_REFLASH) += synaptics_tcm_reflash.o
 obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM_RECOVERY) += synaptics_tcm_recovery.o
 obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM_ZEROFLASH) += synaptics_tcm_zeroflash.o
 obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM_DIAGNOSTICS) += synaptics_tcm_diagnostics.o
+ifeq ($(SHIPPING_API_LEVEL), 28)
+ccflags-y += -DSHIPPING_API_LEVEL=28
+else
+ccflags-y += -DSHIPPING_API_LEVEL=29
+endif

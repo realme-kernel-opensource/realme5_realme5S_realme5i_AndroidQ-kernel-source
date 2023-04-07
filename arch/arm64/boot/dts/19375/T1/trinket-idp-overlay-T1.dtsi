@@ -1,0 +1,50 @@
+/*
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/* 1.include dtsi */
+
+#include "../T0/trinket-idp-overlay-T0.dtsi"
+
+/* 2.T1 Hardware difference */
+
+&qupv3_se2_i2c {
+	Goodix19375@5d {
+		vdd_2v8-supply = <&L6P>;
+		/delete-property/ enable2v8_gpio;
+		pinctrl-0 = <&ts_int_active &ts_reset_active >;
+	};
+};
+
+&qupv3_se7_i2c {
+	/delete-node/ stm8s_fastcg@26;
+};
+
+&tlmm {
+	smb_int_default {
+		mux {
+			pins = "gpio82";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio82";
+			bias-pull-up;
+			input-enable;
+		};
+	};
+};
+
+&smb1355 {
+	interrupts = <82 IRQ_TYPE_LEVEL_LOW>;
+};
+
+#include "oppo-charge-overlay.dtsi"

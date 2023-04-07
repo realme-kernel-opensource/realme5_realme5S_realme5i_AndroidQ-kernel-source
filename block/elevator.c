@@ -204,6 +204,9 @@ int elevator_init(struct request_queue *q, char *name)
 		return 0;
 
 	INIT_LIST_HEAD(&q->queue_head);
+#ifdef VENDOR_EDIT
+	INIT_LIST_HEAD(&q->fg_head);
+#endif /*VENDOR_EDIT*/
 	q->last_merge = NULL;
 	q->end_sector = 0;
 	q->boundary_rq = NULL;
@@ -415,6 +418,9 @@ void elv_dispatch_sort(struct request_queue *q, struct request *rq)
 	}
 
 	list_add(&rq->queuelist, entry);
+#ifdef VENDOR_EDIT
+	queue_throtl_add_request(q, rq, false);
+#endif
 }
 EXPORT_SYMBOL(elv_dispatch_sort);
 
@@ -435,6 +441,9 @@ void elv_dispatch_add_tail(struct request_queue *q, struct request *rq)
 	q->end_sector = rq_end_sector(rq);
 	q->boundary_rq = rq;
 	list_add_tail(&rq->queuelist, &q->queue_head);
+#ifdef VENDOR_EDIT
+	queue_throtl_add_request(q, rq, false);
+#endif
 }
 EXPORT_SYMBOL(elv_dispatch_add_tail);
 
@@ -443,7 +452,7 @@ enum elv_merge elv_merge(struct request_queue *q, struct request **req,
 {
 	struct elevator_queue *e = q->elevator;
 	struct request *__rq;
-
+	enum elv_merge ret;
 	/*
 	 * Levels of merges:
 	 * 	nomerges:  No merges at all attempted
@@ -456,9 +465,11 @@ enum elv_merge elv_merge(struct request_queue *q, struct request **req,
 	/*
 	 * First try one-hit cache.
 	 */
-	if (q->last_merge && elv_bio_merge_ok(q->last_merge, bio)) {
-		enum elv_merge ret = blk_try_merge(q->last_merge, bio);
+	if (q->last_merge) {
+		if (!elv_bio_merge_ok(q->last_merge, bio))
+			return ELEVATOR_NO_MERGE;
 
+		ret = blk_try_merge(q->last_merge, bio);
 		if (ret != ELEVATOR_NO_MERGE) {
 			*req = q->last_merge;
 			return ret;
@@ -607,6 +618,10 @@ void elv_requeue_request(struct request_queue *q, struct request *rq)
 	 */
 	if (blk_account_rq(rq)) {
 		q->in_flight[rq_is_sync(rq)]--;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for ioqueue
+		ohm_ioqueue_dec_inflight(q, rq);
+#endif /*VENDOR_EDIT*/
 		if (rq->rq_flags & RQF_SORTED)
 			elv_deactivate_rq(q, rq);
 	}
@@ -661,12 +676,18 @@ void __elv_add_request(struct request_queue *q, struct request *rq, int where)
 	case ELEVATOR_INSERT_FRONT:
 		rq->rq_flags |= RQF_SOFTBARRIER;
 		list_add(&rq->queuelist, &q->queue_head);
+#ifdef VENDOR_EDIT
+		queue_throtl_add_request(q, rq, true);
+#endif /*VENDOR_EDIT*/
 		break;
 
 	case ELEVATOR_INSERT_BACK:
 		rq->rq_flags |= RQF_SOFTBARRIER;
 		elv_drain_elevator(q);
 		list_add_tail(&rq->queuelist, &q->queue_head);
+#ifdef VENDOR_EDIT
+		queue_throtl_add_request(q, rq, false);
+#endif
 		/*
 		 * We kick the queue here for the following reasons.
 		 * - The elevator might have returned NULL previously
@@ -801,6 +822,10 @@ void elv_completed_request(struct request_queue *q, struct request *rq)
 	 */
 	if (blk_account_rq(rq)) {
 		q->in_flight[rq_is_sync(rq)]--;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for ioqueue
+		ohm_ioqueue_dec_inflight(q, rq);
+#endif /*VENDOR_EDIT*/
 		if ((rq->rq_flags & RQF_SORTED) &&
 		    e->type->ops.sq.elevator_completed_req_fn)
 			e->type->ops.sq.elevator_completed_req_fn(q, rq);

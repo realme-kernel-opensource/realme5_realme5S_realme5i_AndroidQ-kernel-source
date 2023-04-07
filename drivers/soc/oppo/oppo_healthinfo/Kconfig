@@ -1,0 +1,6 @@
+#ifdef VENDOR_EDIT
+config OPPO_HEALTHINFO
+bool "config oppo healthinfo"
+help
+    define this config to init oppo healthinfo.
+#endif /* VENDOR_EDIT */

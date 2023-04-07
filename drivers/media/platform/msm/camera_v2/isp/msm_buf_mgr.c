@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -755,6 +755,7 @@ static int msm_isp_buf_divert(struct msm_isp_buf_mgr *buf_mgr,
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
 static int msm_isp_buf_err(struct msm_isp_buf_mgr *buf_mgr,
 	uint32_t bufq_handle, uint32_t buf_index,
 	struct timeval *tv, uint32_t frame_id, uint32_t output_format)
@@ -809,7 +810,7 @@ static int msm_isp_buf_err(struct msm_isp_buf_mgr *buf_mgr,
 done:
 	return rc;
 }
-
+#endif
 
 static int msm_isp_buf_done(struct msm_isp_buf_mgr *buf_mgr,
 	uint32_t bufq_handle, uint32_t buf_index,
@@ -1559,7 +1560,9 @@ static struct msm_isp_buf_ops isp_buf_ops = {
 	.buf_mgr_debug = msm_isp_buf_mgr_debug,
 	.get_bufq = msm_isp_get_bufq,
 	.buf_divert = msm_isp_buf_divert,
+#ifdef VENDOR_EDIT
 	.buf_err = msm_isp_buf_err,
+#endif
 };
 
 int msm_isp_create_isp_buf_mgr(

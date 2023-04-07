@@ -771,7 +771,9 @@ static size_t __process_echoes(struct tty_struct *tty)
 #if defined(CONFIG_TTY_FLUSH_LOCAL_ECHO)
 	if (ldata->echo_commit != tail) {
 		if (!tty->delayed_work) {
+			#ifndef VENDOR_EDIT
 			INIT_DELAYED_WORK(&tty->echo_delayed_work, continue_process_echoes);
+			#endif /* VENDOR_EDIT */
 			schedule_delayed_work(&tty->echo_delayed_work, 1);
 		}
 		tty->delayed_work = 1;
@@ -1732,7 +1734,7 @@ n_tty_receive_buf_common(struct tty_struct *tty, const unsigned char *cp,
 
 	down_read(&tty->termios_rwsem);
 
-	do {
+	while (1) {
 		/*
 		 * When PARMRK is set, each input char may take up to 3 chars
 		 * in the read buf; reduce the buffer space avail by 3x
@@ -1774,7 +1776,7 @@ n_tty_receive_buf_common(struct tty_struct *tty, const unsigned char *cp,
 			fp += n;
 		count -= n;
 		rcvd += n;
-	} while (!test_bit(TTY_LDISC_CHANGING, &tty->flags));
+	}
 
 	tty->receive_room = room;
 
@@ -1920,6 +1922,13 @@ static void n_tty_close(struct tty_struct *tty)
 	if (tty->link)
 		n_tty_packet_mode_flush(tty);
 
+#ifdef VENDOR_EDIT
+#if defined(CONFIG_TTY_FLUSH_LOCAL_ECHO)
+	if(tty->echo_delayed_work.work.func)
+		cancel_delayed_work_sync(&tty->echo_delayed_work);
+#endif
+#endif /* VENDOR_EDIT */
+
 	vfree(ldata);
 	tty->disc_data = NULL;
 }
@@ -1948,6 +1957,13 @@ static int n_tty_open(struct tty_struct *tty)
 	mutex_init(&ldata->output_lock);
 
 	tty->disc_data = ldata;
+
+#ifdef VENDOR_EDIT
+#if defined(CONFIG_TTY_FLUSH_LOCAL_ECHO)
+	INIT_DELAYED_WORK(&tty->echo_delayed_work, continue_process_echoes);
+#endif
+#endif /* VENDOR_EDIT */
+
 	tty->closing = 0;
 	/* indicate buffer work may resume */
 	clear_bit(TTY_LDISC_HALTED, &tty->flags);
@@ -2241,7 +2257,7 @@ static ssize_t n_tty_read(struct tty_struct *tty, struct file *file,
 					break;
 				if (!timeout)
 					break;
-				if (tty_io_nonblock(tty, file)) {
+				if (file->f_flags & O_NONBLOCK) {
 					retval = -EAGAIN;
 					break;
 				}
@@ -2395,7 +2411,7 @@ static ssize_t n_tty_write(struct tty_struct *tty, struct file *file,
 		}
 		if (!nr)
 			break;
-		if (tty_io_nonblock(tty, file)) {
+		if (file->f_flags & O_NONBLOCK) {
 			retval = -EAGAIN;
 			break;
 		}

@@ -895,6 +895,118 @@ static ssize_t mmc_dsr_show(struct device *dev,
 
 static DEVICE_ATTR(dsr, S_IRUGO, mmc_dsr_show, NULL);
 
+//#ifdef ODM_WT_EDIT
+static int calc_mem_size(void)
+{
+	int temp_size;
+	temp_size = (int)totalram_pages/1024; //page size 4K
+	if ((temp_size > 0*256) && (temp_size <= 1*256))
+		return 1;
+	else if ((temp_size > 1*256) && (temp_size <= 2*256))
+		return 2;
+	else if ((temp_size > 2*256) && (temp_size <= 3*256))
+		return 3;
+	else if ((temp_size > 3*256) && (temp_size <= 4*256))
+		return 4;
+	else if ((temp_size > 4*256) && (temp_size <= 6*256))
+		return 6;
+	else if ((temp_size > 6*256) && (temp_size <= 8*256))
+		return 8;
+	else
+		return 0;
+
+}
+static int calc_mmc_size(struct mmc_card *card)
+{
+	int temp_size;
+	temp_size = (int)card->ext_csd.sectors/2/1024/1024; //sector size 512B
+	if ((temp_size > 8) && (temp_size <= 16))
+		return 16;
+	else if ((temp_size > 16) && (temp_size <= 32))
+		return 32;
+	else if ((temp_size > 32) && (temp_size <= 64))
+		return 64;
+	else if ((temp_size > 64) && (temp_size <= 128))
+		return 128;
+	else if ((temp_size > 128) && (temp_size <= 256))
+		return 256;
+	else
+		return 0;
+}
+
+static ssize_t flash_name_show(struct device *dev,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct mmc_card *card = mmc_dev_to_card(dev);
+	char *vendor_name = NULL;
+	char *emcp_name = NULL;
+	printk("zhang1 manfid=0x%x,prod_name=%s\n",card->cid.manfid,card->cid.prod_name);
+	switch (card->cid.manfid) {
+		case 0x11:
+			vendor_name = "Toshiba";
+			break;
+		case 0x13:
+			vendor_name = "Micron";
+			if (strncmp(card->cid.prod_name, "Q3J97V", strlen("Q3J97V")) == 0)
+				emcp_name = "MT29TZZZ7D7EKKBT-107W.97V";
+			else if (strncmp(card->cid.prod_name, "S0J9F8", strlen("S0J9F8")) == 0)
+				emcp_name = "MT29TZZZAD8DKKBT-107W.9F8";
+                        else if (strncmp(card->cid.prod_name, "S0J9D8", strlen("S0J9D8")) == 0)
+				emcp_name = "MT29VZZZAD8DQKSM-053W.9D8";//4+64
+                        else if (strncmp(card->cid.prod_name, "S0J9K9", strlen("S0J9K9")) == 0)
+				emcp_name = "MT29VZZZAD9DQKSM-046W.9K9";//4+128
+			else
+				emcp_name = NULL;
+			break;
+		case 0x15:
+			vendor_name = "Samsung";
+			if (strncmp(card->cid.prod_name, "DH6DAB", strlen("DH6DAB")) == 0)
+				emcp_name = "KMDH6001DA-B422";//bring up,unused
+			else if (strncmp(card->cid.prod_name, "DD68MB", strlen("DD68MB")) == 0)
+				emcp_name = "KMDD60018M-B320_FBGA";//3+32 first flash->AA1
+			else if (strncmp(card->cid.prod_name, "DP6DAB", strlen("DP6DAB")) == 0)
+				emcp_name = "KMDP6001DA-B425_FBGA";//4+64 first flash->FA1
+			else if (strncmp(card->cid.prod_name, "QE63MB", strlen("QE63MB")) == 0)
+				emcp_name = "KMQE60013M-B318";
+			else if (strncmp(card->cid.prod_name, "GD6BMB", strlen("GD6BMB")) == 0)
+				emcp_name = "KMGD6001BM-B421";
+			else if (strncmp(card->cid.prod_name, "RH64AB", strlen("RH64AB")) == 0)
+				emcp_name = "KMRH60014A-B614";
+			else
+				emcp_name = NULL;
+			break;
+		case 0x45:
+			vendor_name = "Sandisk";
+			break;
+		case 0x90:
+			vendor_name = "Hynix";
+			if (strncmp(card->cid.prod_name, "hC9aP3", strlen("hC9aP3")) == 0)
+				emcp_name = "H9HP53ACPMMDAR-KMM";//4+64 second flash
+			else if (strncmp(card->cid.prod_name, "HAG4a2", strlen("HAG4a2")) == 0)
+				emcp_name = "H9TQ17ABJTCCUR";
+			else if (strncmp(card->cid.prod_name, "hB8aP?", strlen("hB8aP?")) == 0)
+				emcp_name = "H9TQ27ADFTMCUR";
+			else if (strncmp(card->cid.prod_name, "HCG8a4", strlen("HCG8a4")) == 0)
+				emcp_name = "H9TQ52ACLTMCUR";
+			else
+				emcp_name = NULL;
+			break;
+		default:
+			vendor_name = "Unknown";
+			break;
+	}
+
+	if (emcp_name == NULL)
+		emcp_name = card->cid.prod_name;
+	return sprintf(buf, "%s_%s_%dGB_%dGB\n",
+		vendor_name, emcp_name, calc_mem_size(), calc_mmc_size(card));
+}
+
+static DEVICE_ATTR(flash_name, S_IRUGO, flash_name_show, NULL);
+//#endif /* ODM_WT_EDIT */
+
+
 static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_cid.attr,
 	&dev_attr_csd.attr,
@@ -920,6 +1032,9 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_ocr.attr,
 	&dev_attr_dsr.attr,
 	&dev_attr_cmdq_en.attr,
+//#ifdef ODM_WT_EDIT
+	&dev_attr_flash_name.attr,
+//#endif /* ODM_WT_EDIT */
 	NULL,
 };
 ATTRIBUTE_GROUPS(mmc_std);
@@ -2989,72 +3104,6 @@ static int mmc_reset(struct mmc_host *host)
 	return ret;
 }
 
-static int mmc_pre_hibernate(struct mmc_host *host)
-{
-	int ret = 0;
-
-	mmc_get_card(host->card);
-	host->cached_caps2 = host->caps2;
-
-	/*
-	 * Increase usage_count of card and host device till
-	 * hibernation is over. This will ensure they will not runtime suspend.
-	 */
-	pm_runtime_get_noresume(mmc_dev(host));
-	pm_runtime_get_noresume(&host->card->dev);
-
-	if (!mmc_can_scale_clk(host))
-		goto out;
-	/*
-	 * Suspend clock scaling and mask host capability so that
-	 * we will run in max frequency during:
-	 *	1. Hibernation preparation and image creation
-	 *	2. After finding hibernation image during reboot
-	 *	3. Once hibernation image is loaded and till hibernation
-	 *	restore is complete.
-	 */
-	if (host->clk_scaling.enable)
-		mmc_suspend_clk_scaling(host);
-	host->caps2 &= ~MMC_CAP2_CLK_SCALE;
-	host->clk_scaling.state = MMC_LOAD_HIGH;
-	ret = mmc_clk_update_freq(host, host->card->clk_scaling_highest,
-				host->clk_scaling.state);
-	if (ret)
-		pr_err("%s: %s: Setting clk frequency to max failed: %d\n",
-				mmc_hostname(host), __func__, ret);
-out:
-	mmc_host_clk_hold(host);
-	mmc_put_card(host->card);
-	return ret;
-}
-
-static int mmc_post_hibernate(struct mmc_host *host)
-{
-	int ret = 0;
-
-	mmc_get_card(host->card);
-	if (!(host->cached_caps2 & MMC_CAP2_CLK_SCALE))
-		goto enable_pm;
-	/* Enable the clock scaling and set the host capability */
-	host->caps2 |= MMC_CAP2_CLK_SCALE;
-	if (!host->clk_scaling.enable)
-		ret = mmc_resume_clk_scaling(host);
-	if (ret)
-		pr_err("%s: %s: Resuming clk scaling failed: %d\n",
-				mmc_hostname(host), __func__, ret);
-enable_pm:
-	/*
-	 * Reduce usage count of card and host device so that they may
-	 * runtime suspend.
-	 */
-	pm_runtime_put_noidle(&host->card->dev);
-	pm_runtime_put_noidle(mmc_dev(host));
-
-	mmc_host_clk_release(host);
-	mmc_put_card(host->card);
-	return ret;
-}
-
 static const struct mmc_bus_ops mmc_ops = {
 	.remove = mmc_remove,
 	.detect = mmc_detect,
@@ -3064,10 +3113,8 @@ static const struct mmc_bus_ops mmc_ops = {
 	.runtime_resume = mmc_runtime_resume,
 	.alive = mmc_alive,
 	.change_bus_speed = mmc_change_bus_speed,
-	.reset = mmc_reset,
 	.shutdown = mmc_shutdown,
-	.pre_hibernate = mmc_pre_hibernate,
-	.post_hibernate = mmc_post_hibernate
+	.reset = mmc_reset,
 };
 
 /*

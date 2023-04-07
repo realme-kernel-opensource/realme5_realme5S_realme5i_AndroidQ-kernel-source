@@ -425,6 +425,10 @@ static inline void input_mt_sync(struct input_dev *dev)
 
 void input_set_capability(struct input_dev *dev, unsigned int type, unsigned int code);
 
+#ifdef VENDOR_EDIT
+void oppo_sync_key_event(unsigned int type, unsigned int code, int value);
+#endif
+
 /**
  * input_set_events_per_packet - tell handlers about the driver event rate
  * @dev: the input device used by the driver

@@ -240,11 +240,6 @@ struct page_frag_cache {
 
 typedef unsigned long vm_flags_t;
 
-static inline atomic_t *compound_mapcount_ptr(struct page *page)
-{
-	return &page[1].compound_mapcount;
-}
-
 /*
  * A region containing a mapping of a non-memory backed file under NOMMU
  * conditions.  These are held in a global tree and are pinned by the VMAs that
@@ -522,11 +517,42 @@ struct mm_struct {
 #endif
 	struct work_struct async_put_work;
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+	struct vm_area_struct *reserve_vma;
+	struct vm_area_struct *reserve_mmap;
+	struct rb_root reserve_mm_rb;
+	unsigned long reserve_highest_vm_end;
+	unsigned long backed_vm_base;
+	unsigned long backed_vm_size;
+	int reserve_map_count;
+	int do_reserve_mmap;
+#endif
+
 #if IS_ENABLED(CONFIG_HMM)
 	/* HMM needs to track a few things per mm */
 	struct hmm *hmm;
 #endif
 } __randomize_layout;
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+#define DONE_RESERVE_MMAP 0xDE
+#define DOING_RESERVE_MMAP 0xDA
+
+static inline int check_reserve_mmap_doing(struct mm_struct *mm)
+{
+	return (mm && (mm->do_reserve_mmap == DOING_RESERVE_MMAP));
+}
+
+static inline void reserve_mmap_doing(struct mm_struct *mm)
+{
+	mm->do_reserve_mmap = DOING_RESERVE_MMAP;
+}
+
+static inline void reserve_mmap_done(struct mm_struct *mm)
+{
+	mm->do_reserve_mmap = DONE_RESERVE_MMAP;
+}
+#endif
 
 extern struct mm_struct init_mm;
 

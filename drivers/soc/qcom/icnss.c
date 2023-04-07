@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -960,25 +960,12 @@ static int icnss_driver_event_server_arrive(void *data)
 	int ret = 0;
 	bool ignore_assert = false;
 
-	if (!penv) {
-		kfree(data);
+	if (!penv)
 		return -ENODEV;
-	}
-
-	if (test_bit(ICNSS_MODEM_SHUTDOWN, &penv->state)) {
-		icnss_pr_dbg("WLFW server arrive: Modem is down");
-		kfree(data);
-		return -EINVAL;
-	}
 
 	set_bit(ICNSS_WLFW_EXISTS, &penv->state);
 	clear_bit(ICNSS_FW_DOWN, &penv->state);
 	icnss_ignore_fw_timeout(false);
-
-	if (test_bit(ICNSS_WLFW_CONNECTED, &penv->state)) {
-		icnss_pr_err("QMI Server already in Connected State\n");
-		ICNSS_ASSERT(0);
-	}
 
 	ret = icnss_connect_to_fw_server(penv, data);
 	if (ret)
@@ -1592,19 +1579,13 @@ static int icnss_modem_notifier_nb(struct notifier_block *nb,
 			icnss_pr_err("Not able to Collect msa0 segment dump, Apps permissions not assigned %d\n",
 				     ret);
 		}
-		clear_bit(ICNSS_MODEM_SHUTDOWN, &priv->state);
 		return NOTIFY_OK;
 	}
-
-	if (code == SUBSYS_AFTER_SHUTDOWN)
-		clear_bit(ICNSS_MODEM_SHUTDOWN, &priv->state);
 
 	if (code != SUBSYS_BEFORE_SHUTDOWN)
 		return NOTIFY_OK;
 
 	priv->is_ssr = true;
-
-	set_bit(ICNSS_MODEM_SHUTDOWN, &priv->state);
 
 	if (notif->crashed)
 		set_bit(ICNSS_MODEM_CRASHED, &priv->state);
@@ -2651,7 +2632,6 @@ static int icnss_smmu_init(struct icnss_priv *priv)
 	int s1_bypass = 1;
 	int fast = 1;
 	int stall_disable = 1;
-	int non_fatal_faults = 1;
 	int ret = 0;
 
 	icnss_pr_dbg("Initializing SMMU\n");
@@ -2705,16 +2685,6 @@ static int icnss_smmu_init(struct icnss_priv *priv)
 			goto set_attr_fail;
 		}
 		icnss_pr_dbg("SMMU STALL DISABLE map set\n");
-
-		ret = iommu_domain_set_attr(mapping->domain,
-					    DOMAIN_ATTR_NON_FATAL_FAULTS,
-					    &non_fatal_faults);
-		if (ret) {
-			icnss_pr_err("Failed to set SMMU non_fatal_faults attribute, err = %d\n",
-				    ret);
-			goto set_attr_fail;
-		}
-		icnss_pr_dbg("SMMU NON FATAL map set\n");
 	}
 
 	ret = arm_iommu_attach_device(&priv->pdev->dev, mapping);
@@ -3172,9 +3142,6 @@ static int icnss_stats_show_state(struct seq_file *s, struct icnss_priv *priv)
 			continue;
 		case ICNSS_MODEM_CRASHED:
 			seq_puts(s, "MODEM CRASHED");
-			continue;
-		case ICNSS_MODEM_SHUTDOWN:
-			seq_puts(s, "MODEM SHUTDOWN");
 		}
 
 		seq_printf(s, "UNKNOWN-%d", i);
@@ -3671,6 +3638,25 @@ static int icnss_get_vbatt_info(struct icnss_priv *priv)
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
+//Add for: check fw status for switch issue
+static void icnss_create_fw_state_kobj(void);
+static ssize_t icnss_show_fw_ready(struct device_driver *driver, char *buf)
+{
+	bool firmware_ready = icnss_is_fw_ready();
+	return sprintf(buf, "%s", (firmware_ready ? "ready" : "not_ready"));
+}
+
+struct driver_attribute fw_ready_attr = {
+	.attr = {
+		.name = "firmware_ready",
+		.mode = S_IRUGO,
+	},
+	.show = icnss_show_fw_ready,
+	//read only so we don't need to impl store func
+};
+#endif /* VENDOR_EDIT */
+
 static int icnss_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -3894,6 +3880,11 @@ static int icnss_probe(struct platform_device *pdev)
 
 	init_completion(&priv->unblock_shutdown);
 
+	#ifdef VENDOR_EDIT
+	//Add for: check fw status for switch issue
+	icnss_create_fw_state_kobj();
+	#endif /* VENDOR_EDIT */
+
 	icnss_pr_info("Platform driver probed successfully\n");
 
 	return 0;
@@ -4090,6 +4081,15 @@ static struct platform_driver icnss_driver = {
 		.of_match_table = icnss_dt_match,
 	},
 };
+
+#ifdef VENDOR_EDIT
+//Add for: check fw status for switch issue
+static void icnss_create_fw_state_kobj(void) {
+	if (driver_create_file(&(icnss_driver.driver), &fw_ready_attr)) {
+		icnss_pr_info("failed to create %s", fw_ready_attr.attr.name);
+	}
+}
+#endif /* VENDOR_EDIT */
 
 static int __init icnss_initialize(void)
 {

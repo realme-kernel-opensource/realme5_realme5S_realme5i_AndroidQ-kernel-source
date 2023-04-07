@@ -4,7 +4,7 @@
  * Logs the reasons which caused the kernel to resume from
  * the suspend mode.
  *
- * Copyright (C) 2020 Google, Inc.
+ * Copyright (C) 2014 Google, Inc.
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -26,328 +26,414 @@
 #include <linux/spinlock.h>
 #include <linux/notifier.h>
 #include <linux/suspend.h>
-#include <linux/slab.h>
 
-/*
- * struct wakeup_irq_node - stores data and relationships for IRQs logged as
- * either base or nested wakeup reasons during suspend/resume flow.
- * @siblings - for membership on leaf or parent IRQ lists
- * @irq      - the IRQ number
- * @irq_name - the name associated with the IRQ, or a default if none
- */
-struct wakeup_irq_node {
-	struct list_head siblings;
-	int irq;
-	const char *irq_name;
-};
 
-static DEFINE_SPINLOCK(wakeup_reason_lock);
-
-static LIST_HEAD(leaf_irqs);   /* kept in ascending IRQ sorted order */
-static LIST_HEAD(parent_irqs); /* unordered */
-
-static struct kmem_cache *wakeup_irq_nodes_cache;
-
-static const char *default_irq_name = "(unnamed)";
-
-static struct kobject *kobj;
-
-static bool capture_reasons;
+#define MAX_WAKEUP_REASON_IRQS 32
+static int irq_list[MAX_WAKEUP_REASON_IRQS];
+static int irqcount;
 static bool suspend_abort;
-static bool abnormal_wake;
-static char non_irq_wake_reason[MAX_SUSPEND_ABORT_LEN];
+static char abort_reason[MAX_SUSPEND_ABORT_LEN];
+static struct kobject *wakeup_reason;
+static DEFINE_SPINLOCK(resume_reason_lock);
 
 static ktime_t last_monotime; /* monotonic time before last suspend */
 static ktime_t curr_monotime; /* monotonic time after last suspend */
 static ktime_t last_stime; /* monotonic boottime offset before last suspend */
 static ktime_t curr_stime; /* monotonic boottime offset after last suspend */
 
-static void init_node(struct wakeup_irq_node *p, int irq)
+#ifdef VENDOR_EDIT
+#include <linux/notifier.h>
+#include <linux/fb.h>
+#include <linux/msm_drm_notify.h>
+#endif /* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+static u64 wakeup_sleep_abort_all = 0;
+extern u64 wakeup_source_count_all;
+extern u64 wakeup_source_count_wifi;
+
+extern u64	wakeup_source_count_modem;
+
+extern u64 wakeup_source_count_pmic_rtc;
+extern u64 wakeup_source_count_kpdpwr;
+extern u64 wakeup_source_count_cdsp;
+extern u64 wakeup_source_count_adsp;
+
+extern u64 	alarm_count;
+extern u64	wakeup_source_count_rtc;
+
+
+static ssize_t ap_resume_reason_stastics_show(struct kobject *kobj, struct kobj_attribute *attr,
+		char *buf)
 {
-	struct irq_desc *desc;
+	int buf_offset = 0;
 
-	INIT_LIST_HEAD(&p->siblings);
+	buf_offset += sprintf(buf + buf_offset, "wcnss_wlan");
+	buf_offset += sprintf(buf + buf_offset,  "%s",":");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_wifi);
+	printk(KERN_WARNING "%s wakeup %lld times\n","wcnss_wlan",wakeup_source_count_wifi);
 
-	p->irq = irq;
-	desc = irq_to_desc(irq);
-	if (desc && desc->action && desc->action->name)
-		p->irq_name = desc->action->name;
-	else
-		p->irq_name = default_irq_name;
+	buf_offset += sprintf(buf + buf_offset, "modem");
+	buf_offset += sprintf(buf + buf_offset,  "%s",":");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_modem);
+	printk(KERN_WARNING "%s wakeup %lld times\n","qcom,smd-modem",wakeup_source_count_modem);
+
+	buf_offset += sprintf(buf + buf_offset, "qpnp_rtc_alarm");
+	buf_offset += sprintf(buf + buf_offset,  "%s",":");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_rtc);
+	printk(KERN_WARNING "%s wakeup %lld times\n","qpnp_rtc_alarm",wakeup_source_count_rtc);
+
+	buf_offset += sprintf(buf + buf_offset, "power_key");
+	buf_offset += sprintf(buf + buf_offset,  "%s",":");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_kpdpwr);
+	printk(KERN_WARNING "%s wakeup %lld times\n","power_key",wakeup_source_count_kpdpwr);
+
+	buf_offset += sprintf(buf + buf_offset, "cdsp");
+	buf_offset += sprintf(buf + buf_offset,  "%s",":");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_cdsp);
+	printk(KERN_WARNING "%s wakeup %lld times\n","cdsp",wakeup_source_count_cdsp);
+
+	buf_offset += sprintf(buf + buf_offset, "adsp");
+	buf_offset += sprintf(buf + buf_offset,  "%s",":");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_adsp);
+	printk(KERN_WARNING "%s wakeup %lld times\n","adsp",wakeup_source_count_adsp);
+
+	buf_offset += sprintf(buf + buf_offset, "alarm");
+	buf_offset += sprintf(buf + buf_offset,  "%s",":");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_pmic_rtc);
+	printk(KERN_WARNING "%s wakeup %lld times\n","alarm",wakeup_source_count_pmic_rtc);
+
+	buf_offset += sprintf(buf + buf_offset, "wake_sum");
+	buf_offset += sprintf(buf + buf_offset,  "%s","=");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_source_count_all);
+	printk(KERN_WARNING "%s wakeup %lld times\n","wake_sum",wakeup_source_count_all);
+
+	buf_offset += sprintf(buf + buf_offset, "abort");
+	buf_offset += sprintf(buf + buf_offset,  "%s","=");
+	buf_offset += sprintf(buf + buf_offset,  "%lld \n",wakeup_sleep_abort_all);
+	printk(KERN_WARNING "%s wakeup %lld times\n","abort",wakeup_sleep_abort_all);
+
+	return buf_offset;
+}
+#define MODEM_WAKEUP_SRC_NUM 3
+extern int modem_wakeup_src_count[MODEM_WAKEUP_SRC_NUM];
+extern char modem_wakeup_src_string[MODEM_WAKEUP_SRC_NUM][10];
+static ssize_t modem_resume_reason_stastics_show(struct kobject *kobj, struct kobj_attribute *attr,
+		char *buf)
+{
+    int max_wakeup_src_count = 0;
+    int max_wakeup_src_index = 0;
+    int i, total = 0;
+
+    for(i = 0; i < MODEM_WAKEUP_SRC_NUM; i++)
+    {
+        total += modem_wakeup_src_count[i];
+        printk(KERN_WARNING "%s wakeup %d times, total %d times\n",
+            modem_wakeup_src_string[i],modem_wakeup_src_count[i],total);
+
+        if (modem_wakeup_src_count[i] > max_wakeup_src_count)
+        {
+            max_wakeup_src_index = i;
+            max_wakeup_src_count = modem_wakeup_src_count[i];
+        }
+
+    }
+
+    return sprintf(buf, "%s:%d:%d\n", modem_wakeup_src_string[max_wakeup_src_index], max_wakeup_src_count, total);
+}
+//Yongyao.Song add end
+#endif /* VENDOR_EDIT */
+
+
+#ifdef VENDOR_EDIT
+static void wakeup_reason_count_clear(void)
+{
+    printk(KERN_INFO  "ENTER %s\n", __func__);
+
+	wakeup_source_count_all = 0;
+    alarm_count = 0;
+	wakeup_source_count_rtc = 0;
+
+	wakeup_source_count_wifi = 0;
+	wakeup_source_count_modem = 0;
+
+	wakeup_source_count_pmic_rtc = 0;
+	wakeup_source_count_kpdpwr = 0;
+	wakeup_source_count_cdsp = 0;
+	wakeup_source_count_adsp = 0;
+	wakeup_sleep_abort_all = 0;
 }
 
-static struct wakeup_irq_node *create_node(int irq)
+static void wakeup_reason_count_out(void)
 {
-	struct wakeup_irq_node *result;
-
-	result = kmem_cache_alloc(wakeup_irq_nodes_cache, GFP_ATOMIC);
-	if (unlikely(!result))
-		pr_warn("Failed to log wakeup IRQ %d\n", irq);
-	else
-		init_node(result, irq);
-
-	return result;
+	printk(KERN_INFO   "%s wakeup %lld times\n","wakeup_all",wakeup_source_count_all);
+	printk(KERN_INFO   "%s wakeup %lld times\n","wcnss_wlan",wakeup_source_count_wifi);
+	printk(KERN_INFO   "%s wakeup %lld times\n","qcom,smd-modem",wakeup_source_count_modem);
+	printk(KERN_INFO   "%s wakeup %lld times\n","alarm",wakeup_source_count_pmic_rtc);
+	printk(KERN_INFO   "%s wakeup %lld times\n","qpnp_rtc_alarm",wakeup_source_count_rtc);
+	printk(KERN_INFO   "%s wakeup %lld times\n","power_key",wakeup_source_count_kpdpwr);
+	printk(KERN_INFO   "%s wakeup %lld times\n","cdsp",wakeup_source_count_cdsp);
+	printk(KERN_INFO   "%s wakeup %lld times\n","adsp",wakeup_source_count_adsp);
+	printk(KERN_INFO   "%s sum is %lld times\n","abort",wakeup_sleep_abort_all);
+	printk(KERN_INFO  "ENTER %s\n", __func__);
+}
+static void modem_wakeup_reason_count_clear(void)
+{
+    int i;
+    printk(KERN_INFO  "ENTER %s\n", __func__);
+    for(i = 0; i < MODEM_WAKEUP_SRC_NUM; i++)
+    {
+        modem_wakeup_src_count[i] = 0;
+    }
 }
 
-static void delete_list(struct list_head *head)
+static void modem_wakeup_reason_count_out(void)
 {
-	struct wakeup_irq_node *n;
-
-	while (!list_empty(head)) {
-		n = list_first_entry(head, struct wakeup_irq_node, siblings);
-		list_del(&n->siblings);
-		kmem_cache_free(wakeup_irq_nodes_cache, n);
-	}
+    int i;
+    for(i = 0; i < MODEM_WAKEUP_SRC_NUM; i++)
+    {
+        printk(KERN_WARNING "%s wakeup %d times\n",
+            modem_wakeup_src_string[i],modem_wakeup_src_count[i]);
+    }
+    printk(KERN_INFO  "ENTER %s\n", __func__);
 }
-
-static bool add_sibling_node_sorted(struct list_head *head, int irq)
+//Yongyao.Song add end
+void wakeup_src_clean(void)
 {
-	struct wakeup_irq_node *n = NULL;
-	struct list_head *predecessor = head;
+	wakeup_reason_count_clear();
+	modem_wakeup_reason_count_clear();
+}
+EXPORT_SYMBOL(wakeup_src_clean);
 
-	if (unlikely(WARN_ON(!head)))
-		return NULL;
 
-	if (!list_empty(head))
-		list_for_each_entry(n, head, siblings) {
-			if (n->irq < irq)
-				predecessor = &n->siblings;
-			else if (n->irq == irq)
-				return true;
-			else
-				break;
+#ifdef CONFIG_DRM_MSM
+static int wakeup_src_fb_notifier_callback(struct notifier_block *self,
+				 unsigned long event, void *data)
+{
+	struct msm_drm_notifier *evdata = data;
+	int *blank;
+
+ 	if (evdata && evdata->data && event == MSM_DRM_EVENT_BLANK)
+	{
+		blank = evdata->data;
+		if (*blank == MSM_DRM_BLANK_UNBLANK)
+		{
+			wakeup_reason_count_out();
+			modem_wakeup_reason_count_out();
 		}
-
-	n = create_node(irq);
-	if (n) {
-		list_add(&n->siblings, predecessor);
-		return true;
 	}
+	else if (evdata && evdata->data && event == MSM_DRM_EARLY_EVENT_BLANK)
+	{
+		blank = evdata->data;
 
-	return false;
-}
-
-static struct wakeup_irq_node *find_node_in_list(struct list_head *head,
-						 int irq)
-{
-	struct wakeup_irq_node *n;
-
-	if (unlikely(WARN_ON(!head)))
-		return NULL;
-
-	list_for_each_entry(n, head, siblings)
-		if (n->irq == irq)
-			return n;
-
-	return NULL;
-}
-
-void log_irq_wakeup_reason(int irq)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&wakeup_reason_lock, flags);
-
-	if (!capture_reasons) {
-		spin_unlock_irqrestore(&wakeup_reason_lock, flags);
-		return;
+		if (*blank == MSM_DRM_BLANK_POWERDOWN)
+		{
+			wakeup_src_clean();
+			pr_info("[wakeup_src_fb_notifier_callback] wakeup_src_clean all wakeup\n");
+		}
 	}
+	return 0;
+}
+#else
+static int wakeup_src_fb_notifier_callback(struct notifier_block *self,
+				 unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
 
-	if (find_node_in_list(&parent_irqs, irq) == NULL)
-		add_sibling_node_sorted(&leaf_irqs, irq);
 
-	spin_unlock_irqrestore(&wakeup_reason_lock, flags);
+	pr_warn("%s:   is start event=%lu \n", __func__,event);
+
+	if (evdata && evdata->data && event == FB_EVENT_BLANK)
+	{
+		blank = evdata->data;
+
+		if (*blank == FB_BLANK_UNBLANK)
+        {
+			wakeup_reason_count_out();
+			modem_wakeup_reason_count_out();
+		}
+	}
+    else if (evdata && evdata->data && event == FB_EARLY_EVENT_BLANK)
+	{
+			blank = evdata->data;
+
+			if (*blank == FB_BLANK_POWERDOWN)
+			{
+				wakeup_src_clean();
+				pr_err("[wakeup_src_fb_notifier_callback] wakeup_src_clean all wakeup\n");
+			}
+    }
+	return 0;
+}
+#endif /* CONFIG_DRM_MSM */
+
+static struct notifier_block wakeup_src_fb_notif = {
+	.notifier_call = wakeup_src_fb_notifier_callback,
+};
+#endif /* VENDOR_EDIT */
+
+
+static ssize_t last_resume_reason_show(struct kobject *kobj, struct kobj_attribute *attr,
+		char *buf)
+{
+	int irq_no, buf_offset = 0;
+	struct irq_desc *desc;
+	spin_lock(&resume_reason_lock);
+	if (suspend_abort) {
+		buf_offset = sprintf(buf, "Abort: %s", abort_reason);
+	} else {
+		for (irq_no = 0; irq_no < irqcount; irq_no++) {
+			desc = irq_to_desc(irq_list[irq_no]);
+			if (desc && desc->action && desc->action->name)
+				buf_offset += sprintf(buf + buf_offset, "%d %s\n",
+						irq_list[irq_no], desc->action->name);
+			else
+				buf_offset += sprintf(buf + buf_offset, "%d\n",
+						irq_list[irq_no]);
+		}
+	}
+	spin_unlock(&resume_reason_lock);
+	return buf_offset;
 }
 
-void log_threaded_irq_wakeup_reason(int irq, int parent_irq)
+#ifdef VENDOR_EDIT
+//echo reset > /sys/kernel/wakeup_reasons/wakeup_stastisc_reset
+static ssize_t  wakeup_stastisc_reset_store(struct kobject *kobj,
+				struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	struct wakeup_irq_node *parent;
-	unsigned long flags;
+	char reset_string[]="reset";
+
+	if(strlen(reset_string) != (count-1))
+		return count;
+
+	if (strncmp(buf, reset_string, strlen(reset_string)) != 0)
+		return count;
+
+	wakeup_src_clean();
+	return count;
+}
+#endif /* VENDOR_EDIT */
+static ssize_t last_suspend_time_show(struct kobject *kobj,
+			struct kobj_attribute *attr, char *buf)
+{
+	struct timespec sleep_time;
+	struct timespec total_time;
+	struct timespec suspend_resume_time;
 
 	/*
-	 * Intentionally unsynchronized.  Calls that come in after we have
-	 * resumed should have a fast exit path since there's no work to be
-	 * done, any any coherence issue that could cause a wrong value here is
-	 * both highly improbable - given the set/clear timing - and very low
-	 * impact (parent IRQ gets logged instead of the specific child).
+	 * total_time is calculated from monotonic bootoffsets because
+	 * unlike CLOCK_MONOTONIC it include the time spent in suspend state.
 	 */
-	if (!capture_reasons)
-		return;
+	total_time = ktime_to_timespec(ktime_sub(curr_stime, last_stime));
 
-	spin_lock_irqsave(&wakeup_reason_lock, flags);
+	/*
+	 * suspend_resume_time is calculated as monotonic (CLOCK_MONOTONIC)
+	 * time interval before entering suspend and post suspend.
+	 */
+	suspend_resume_time = ktime_to_timespec(ktime_sub(curr_monotime, last_monotime));
 
-	if (!capture_reasons || (find_node_in_list(&leaf_irqs, irq) != NULL)) {
-		spin_unlock_irqrestore(&wakeup_reason_lock, flags);
-		return;
-	}
+	/* sleep_time = total_time - suspend_resume_time */
+	sleep_time = timespec_sub(total_time, suspend_resume_time);
 
-	parent = find_node_in_list(&parent_irqs, parent_irq);
-	if (parent != NULL)
-		add_sibling_node_sorted(&leaf_irqs, irq);
-	else {
-		parent = find_node_in_list(&leaf_irqs, parent_irq);
-		if (parent != NULL) {
-			list_del_init(&parent->siblings);
-			list_add_tail(&parent->siblings, &parent_irqs);
-			add_sibling_node_sorted(&leaf_irqs, irq);
-		}
-	}
-
-	spin_unlock_irqrestore(&wakeup_reason_lock, flags);
+	/* Export suspend_resume_time and sleep_time in pair here. */
+	return sprintf(buf, "%lu.%09lu %lu.%09lu\n",
+				suspend_resume_time.tv_sec, suspend_resume_time.tv_nsec,
+				sleep_time.tv_sec, sleep_time.tv_nsec);
 }
 
-static void __log_abort_or_abnormal_wake(bool abort, const char *fmt,
-					 va_list args)
+static struct kobj_attribute resume_reason = __ATTR_RO(last_resume_reason);
+static struct kobj_attribute suspend_time = __ATTR_RO(last_suspend_time);
+
+#ifdef VENDOR_EDIT
+static struct kobj_attribute ap_resume_reason_stastics = __ATTR_RO(ap_resume_reason_stastics);
+static struct kobj_attribute modem_resume_reason_stastics = __ATTR_RO(modem_resume_reason_stastics);
+//Yongyao.Song, add end
+//echo reset >   /sys/kernel/wakeup_reasons/wakeup_stastisc_reset
+static struct kobj_attribute wakeup_stastisc_reset_sys =
+	__ATTR(wakeup_stastisc_reset, S_IWUSR|S_IRUGO, NULL, wakeup_stastisc_reset_store);
+#endif /* VENDOR_EDIT */
+
+static struct attribute *attrs[] = {
+	&resume_reason.attr,
+	&suspend_time.attr,
+
+#ifdef VENDOR_EDIT
+    &ap_resume_reason_stastics.attr,
+	&modem_resume_reason_stastics.attr,
+	//Yongyao.Song, add end
+	//echo reset >   /sys/kernel/wakeup_reasons/wakeup_stastisc_reset
+	&wakeup_stastisc_reset_sys.attr,
+#endif /* VENDOR_EDIT */
+
+	NULL,
+};
+static struct attribute_group attr_group = {
+	.attrs = attrs,
+};
+
+/*
+ * logs all the wake up reasons to the kernel
+ * stores the irqs to expose them to the userspace via sysfs
+ */
+void log_wakeup_reason(int irq)
 {
-	unsigned long flags;
+	struct irq_desc *desc;
+	desc = irq_to_desc(irq);
+	if (desc && desc->action && desc->action->name)
+		printk(KERN_INFO "Resume caused by IRQ %d, %s\n", irq,
+				desc->action->name);
+	else
+		printk(KERN_INFO "Resume caused by IRQ %d\n", irq);
 
-	spin_lock_irqsave(&wakeup_reason_lock, flags);
-
-	/* Suspend abort or abnormal wake reason has already been logged. */
-	if (suspend_abort || abnormal_wake) {
-		spin_unlock_irqrestore(&wakeup_reason_lock, flags);
+	spin_lock(&resume_reason_lock);
+	if (irqcount == MAX_WAKEUP_REASON_IRQS) {
+		spin_unlock(&resume_reason_lock);
+		printk(KERN_WARNING "Resume caused by more than %d IRQs\n",
+				MAX_WAKEUP_REASON_IRQS);
 		return;
 	}
 
-	suspend_abort = abort;
-	abnormal_wake = !abort;
-	vsnprintf(non_irq_wake_reason, MAX_SUSPEND_ABORT_LEN, fmt, args);
+	irq_list[irqcount++] = irq;
+	spin_unlock(&resume_reason_lock);
+}
 
-	spin_unlock_irqrestore(&wakeup_reason_lock, flags);
+int check_wakeup_reason(int irq)
+{
+	int irq_no;
+	int ret = false;
+
+	spin_lock(&resume_reason_lock);
+	for (irq_no = 0; irq_no < irqcount; irq_no++)
+		if (irq_list[irq_no] == irq) {
+			ret = true;
+			break;
+	}
+	spin_unlock(&resume_reason_lock);
+	return ret;
 }
 
 void log_suspend_abort_reason(const char *fmt, ...)
 {
 	va_list args;
 
-	va_start(args, fmt);
-	__log_abort_or_abnormal_wake(true, fmt, args);
-	va_end(args);
-}
+	spin_lock(&resume_reason_lock);
 
-void log_abnormal_wakeup_reason(const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	__log_abort_or_abnormal_wake(false, fmt, args);
-	va_end(args);
-}
-
-void clear_wakeup_reasons(void)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&wakeup_reason_lock, flags);
-
-	delete_list(&leaf_irqs);
-	delete_list(&parent_irqs);
-	suspend_abort = false;
-	abnormal_wake = false;
-	capture_reasons = true;
-
-	spin_unlock_irqrestore(&wakeup_reason_lock, flags);
-}
-
-static void print_wakeup_sources(void)
-{
-	struct wakeup_irq_node *n;
-	unsigned long flags;
-
-	spin_lock_irqsave(&wakeup_reason_lock, flags);
-
-	capture_reasons = false;
-
+	//Suspend abort reason has already been logged.
 	if (suspend_abort) {
-		pr_info("Abort: %s\n", non_irq_wake_reason);
-		spin_unlock_irqrestore(&wakeup_reason_lock, flags);
+		spin_unlock(&resume_reason_lock);
 		return;
 	}
+	#ifdef VENDOR_EDIT
+	wakeup_sleep_abort_all++;
+	#endif
 
-	if (!list_empty(&leaf_irqs))
-		list_for_each_entry(n, &leaf_irqs, siblings)
-			pr_info("Resume caused by IRQ %d, %s\n", n->irq,
-				n->irq_name);
-	else if (abnormal_wake)
-		pr_info("Resume caused by %s\n", non_irq_wake_reason);
-	else
-		pr_info("Resume cause unknown\n");
-
-	spin_unlock_irqrestore(&wakeup_reason_lock, flags);
+	suspend_abort = true;
+	va_start(args, fmt);
+	vsnprintf(abort_reason, MAX_SUSPEND_ABORT_LEN, fmt, args);
+	va_end(args);
+	spin_unlock(&resume_reason_lock);
 }
-
-static ssize_t last_resume_reason_show(struct kobject *kobj,
-				       struct kobj_attribute *attr, char *buf)
-{
-	ssize_t buf_offset = 0;
-	struct wakeup_irq_node *n;
-	unsigned long flags;
-
-	spin_lock_irqsave(&wakeup_reason_lock, flags);
-
-	if (suspend_abort) {
-		buf_offset = scnprintf(buf, PAGE_SIZE, "Abort: %s",
-				       non_irq_wake_reason);
-		spin_unlock_irqrestore(&wakeup_reason_lock, flags);
-		return buf_offset;
-	}
-
-	if (!list_empty(&leaf_irqs))
-		list_for_each_entry(n, &leaf_irqs, siblings)
-			buf_offset += scnprintf(buf + buf_offset,
-						PAGE_SIZE - buf_offset,
-						"%d %s\n", n->irq, n->irq_name);
-	else if (abnormal_wake)
-		buf_offset = scnprintf(buf, PAGE_SIZE, "-1 %s",
-				       non_irq_wake_reason);
-
-	spin_unlock_irqrestore(&wakeup_reason_lock, flags);
-
-	return buf_offset;
-}
-
-static ssize_t last_suspend_time_show(struct kobject *kobj,
-			struct kobj_attribute *attr, char *buf)
-{
-	struct timespec64 sleep_time;
-	struct timespec64 total_time;
-	struct timespec64 suspend_resume_time;
-
-	/*
-	 * total_time is calculated from monotonic bootoffsets because
-	 * unlike CLOCK_MONOTONIC it include the time spent in suspend state.
-	 */
-	total_time = ktime_to_timespec64(ktime_sub(curr_stime, last_stime));
-
-	/*
-	 * suspend_resume_time is calculated as monotonic (CLOCK_MONOTONIC)
-	 * time interval before entering suspend and post suspend.
-	 */
-	suspend_resume_time =
-		ktime_to_timespec64(ktime_sub(curr_monotime, last_monotime));
-
-	/* sleep_time = total_time - suspend_resume_time */
-	sleep_time = timespec64_sub(total_time, suspend_resume_time);
-
-	/* Export suspend_resume_time and sleep_time in pair here. */
-	return sprintf(buf, "%llu.%09lu %llu.%09lu\n",
-		       (unsigned long long)suspend_resume_time.tv_sec,
-		       suspend_resume_time.tv_nsec,
-		       (unsigned long long)sleep_time.tv_sec,
-		       sleep_time.tv_nsec);
-}
-
-static struct kobj_attribute resume_reason = __ATTR_RO(last_resume_reason);
-static struct kobj_attribute suspend_time = __ATTR_RO(last_suspend_time);
-
-static struct attribute *attrs[] = {
-	&resume_reason.attr,
-	&suspend_time.attr,
-	NULL,
-};
-static struct attribute_group attr_group = {
-	.attrs = attrs,
-};
 
 /* Detects a suspend and clears all the previous wake up reasons*/
 static int wakeup_reason_pm_event(struct notifier_block *notifier,
@@ -355,18 +441,20 @@ static int wakeup_reason_pm_event(struct notifier_block *notifier,
 {
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
+		spin_lock(&resume_reason_lock);
+		irqcount = 0;
+		suspend_abort = false;
+		spin_unlock(&resume_reason_lock);
 		/* monotonic time since boot */
 		last_monotime = ktime_get();
 		/* monotonic time since boot including the time spent in suspend */
 		last_stime = ktime_get_boottime();
-		clear_wakeup_reasons();
 		break;
 	case PM_POST_SUSPEND:
 		/* monotonic time since boot */
 		curr_monotime = ktime_get();
 		/* monotonic time since boot including the time spent in suspend */
 		curr_stime = ktime_get_boottime();
-		print_wakeup_sources();
 		break;
 	default:
 		break;
@@ -378,40 +466,39 @@ static struct notifier_block wakeup_reason_pm_notifier_block = {
 	.notifier_call = wakeup_reason_pm_event,
 };
 
-static int __init wakeup_reason_init(void)
+/* Initializes the sysfs parameter
+ * registers the pm_event notifier
+ */
+int __init wakeup_reason_init(void)
 {
-	if (register_pm_notifier(&wakeup_reason_pm_notifier_block)) {
-		pr_warn("[%s] failed to register PM notifier\n", __func__);
-		goto fail;
+	int retval;
+
+	retval = register_pm_notifier(&wakeup_reason_pm_notifier_block);
+	if (retval)
+		printk(KERN_WARNING "[%s] failed to register PM notifier %d\n",
+				__func__, retval);
+
+	wakeup_reason = kobject_create_and_add("wakeup_reasons", kernel_kobj);
+	if (!wakeup_reason) {
+		printk(KERN_WARNING "[%s] failed to create a sysfs kobject\n",
+				__func__);
+		return 1;
+	}
+	retval = sysfs_create_group(wakeup_reason, &attr_group);
+	if (retval) {
+		kobject_put(wakeup_reason);
+		printk(KERN_WARNING "[%s] failed to create a sysfs group %d\n",
+				__func__, retval);
 	}
 
-	kobj = kobject_create_and_add("wakeup_reasons", kernel_kobj);
-	if (!kobj) {
-		pr_warn("[%s] failed to create a sysfs kobject\n", __func__);
-		goto fail_unregister_pm_notifier;
-	}
-
-	if (sysfs_create_group(kobj, &attr_group)) {
-		pr_warn("[%s] failed to create a sysfs group\n", __func__);
-		goto fail_kobject_put;
-	}
-
-	wakeup_irq_nodes_cache =
-		kmem_cache_create("wakeup_irq_node_cache",
-				  sizeof(struct wakeup_irq_node), 0, 0, NULL);
-	if (!wakeup_irq_nodes_cache)
-		goto fail_remove_group;
-
+    #ifdef VENDOR_EDIT
+#ifdef CONFIG_DRM_MSM
+	msm_drm_register_client(&wakeup_src_fb_notif);
+#else
+	fb_register_client(&wakeup_src_fb_notif);
+#endif
+    #endif /* VENDOR_EDIT */
 	return 0;
-
-fail_remove_group:
-	sysfs_remove_group(kobj, &attr_group);
-fail_kobject_put:
-	kobject_put(kobj);
-fail_unregister_pm_notifier:
-	unregister_pm_notifier(&wakeup_reason_pm_notifier_block);
-fail:
-	return 1;
 }
 
 late_initcall(wakeup_reason_init);

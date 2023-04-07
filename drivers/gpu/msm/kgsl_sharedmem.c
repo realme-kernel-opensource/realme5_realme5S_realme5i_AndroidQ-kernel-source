@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -146,20 +146,17 @@ gpumem_mapped_show(struct kgsl_process_private *priv,
 				int type, char *buf)
 {
 	return scnprintf(buf, PAGE_SIZE, "%llu\n",
-			(u64)atomic64_read(&priv->gpumem_mapped));
+			priv->gpumem_mapped);
 }
 
 static ssize_t
 gpumem_unmapped_show(struct kgsl_process_private *priv, int type, char *buf)
 {
-	u64 gpumem_total = atomic64_read(&priv->stats[type].cur);
-	u64 gpumem_mapped = atomic64_read(&priv->gpumem_mapped);
-
-	if (gpumem_mapped > gpumem_total)
+	if (priv->gpumem_mapped > priv->stats[type].cur)
 		return -EIO;
 
 	return scnprintf(buf, PAGE_SIZE, "%llu\n",
-			gpumem_total - gpumem_mapped);
+			priv->stats[type].cur - priv->gpumem_mapped);
 }
 
 static struct kgsl_mem_entry_attribute debug_memstats[] = {
@@ -176,8 +173,7 @@ static struct kgsl_mem_entry_attribute debug_memstats[] = {
 static ssize_t
 mem_entry_show(struct kgsl_process_private *priv, int type, char *buf)
 {
-	return scnprintf(buf, PAGE_SIZE, "%llu\n",
-			(u64)atomic64_read(&priv->stats[type].cur));
+	return snprintf(buf, PAGE_SIZE, "%llu\n", priv->stats[type].cur);
 }
 
 /**
@@ -188,8 +184,7 @@ mem_entry_show(struct kgsl_process_private *priv, int type, char *buf)
 static ssize_t
 mem_entry_max_show(struct kgsl_process_private *priv, int type, char *buf)
 {
-	return scnprintf(buf, PAGE_SIZE, "%llu\n",
-			(u64)atomic64_read(&priv->stats[type].max));
+	return snprintf(buf, PAGE_SIZE, "%llu\n", priv->stats[type].max);
 }
 
 static ssize_t mem_entry_sysfs_show(struct kobject *kobj,
@@ -275,7 +270,7 @@ void kgsl_process_init_sysfs(struct kgsl_device *device,
 	/* Keep private valid until the sysfs enries are removed. */
 	kgsl_process_private_get(private);
 
-	snprintf(name, sizeof(name), "%d", private->pid);
+	snprintf(name, sizeof(name), "%d", pid_nr(private->pid));
 
 	if (kobject_init_and_add(&private->kobj, &ktype_mem_entry,
 		kgsl_driver.prockobj, name)) {
@@ -303,6 +298,12 @@ void kgsl_process_init_sysfs(struct kgsl_device *device,
 	}
 }
 
+#ifdef VENDOR_EDIT
+unsigned long gpu_total(void)
+{
+	return (unsigned long)atomic_long_read(&kgsl_driver.stats.page_alloc);
+}
+#endif /*VENDOR_EDIT*/
 static ssize_t kgsl_drv_memstat_show(struct device *dev,
 				 struct device_attribute *attr,
 				 char *buf)
@@ -453,7 +454,7 @@ static int kgsl_page_alloc_vmfault(struct kgsl_memdesc *memdesc,
 		get_page(page);
 		vmf->page = page;
 
-		atomic64_add(PAGE_SIZE, &memdesc->mapsize);
+		memdesc->mapsize += PAGE_SIZE;
 
 		return 0;
 	}
@@ -624,7 +625,7 @@ static int kgsl_contiguous_vmfault(struct kgsl_memdesc *memdesc,
 	else if (ret == -EFAULT)
 		return VM_FAULT_SIGBUS;
 
-	atomic64_add(PAGE_SIZE, &memdesc->mapsize);
+	memdesc->mapsize += PAGE_SIZE;
 
 	return VM_FAULT_NOPAGE;
 }
@@ -639,7 +640,7 @@ static void kgsl_cma_coherent_free(struct kgsl_memdesc *memdesc)
 				&kgsl_driver.stats.secure);
 
 			kgsl_cma_unlock_secure(memdesc);
-			attrs = memdesc->attrs;
+			attrs = (unsigned long)&memdesc->attrs;
 		} else
 			atomic_long_sub(memdesc->size,
 				&kgsl_driver.stats.coherent);
@@ -852,6 +853,7 @@ void kgsl_memdesc_init(struct kgsl_device *device,
 		(memdesc->flags & KGSL_MEMALIGN_MASK) >> KGSL_MEMALIGN_SHIFT,
 		ilog2(PAGE_SIZE));
 	kgsl_memdesc_set_align(memdesc, align);
+	spin_lock_init(&memdesc->lock);
 }
 
 int
@@ -1053,11 +1055,8 @@ void kgsl_sharedmem_free(struct kgsl_memdesc *memdesc)
 		kfree(memdesc->sgt);
 	}
 
-	memdesc->page_count = 0;
 	if (memdesc->pages)
 		kgsl_free(memdesc->pages);
-	memdesc->pages = NULL;
-
 }
 EXPORT_SYMBOL(kgsl_sharedmem_free);
 

@@ -31,4 +31,11 @@ obj-$(CONFIG_INPUT_KEYRESET)	+= keyreset.o
 obj-$(CONFIG_INPUT_KEYCOMBO)	+= keycombo.o
 
 obj-$(CONFIG_RMI4_CORE)		+= rmi4/
-obj-$(CONFIG_SMI130)   += sensors/smi130/
+
+#ifdef VENDOR_EDIT
+obj-$(CONFIG_OPPO_FINGERPRINT)  += oppo_fp_drivers/
+#endif
+
+#ifdef VENDOR_EDIT
+obj-$(CONFIG_OPPO_FINGERPRINT) += oppo_seccommon_drivers/
+#endif

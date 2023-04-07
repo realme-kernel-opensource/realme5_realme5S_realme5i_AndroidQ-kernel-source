@@ -1175,28 +1175,9 @@ void __init adjust_lowmem_bounds(void)
 	 */
 	vmalloc_limit = (u64)(uintptr_t)vmalloc_min - PAGE_OFFSET + PHYS_OFFSET;
 
-	/*
-	 * The first usable region must be PMD aligned. Mark its start
-	 * as MEMBLOCK_NOMAP if it isn't
-	 */
-	for_each_memblock(memory, reg) {
-		if (!memblock_is_nomap(reg)) {
-			if (!IS_ALIGNED(reg->base, PMD_SIZE)) {
-				phys_addr_t len;
-
-				len = round_up(reg->base, PMD_SIZE) - reg->base;
-				memblock_mark_nomap(reg->base, len);
-			}
-			break;
-		}
-	}
-
 	for_each_memblock(memory, reg) {
 		phys_addr_t block_start = reg->base;
 		phys_addr_t block_end = reg->base + reg->size;
-
-		if (memblock_is_nomap(reg))
-			continue;
 
 		if (reg->base < vmalloc_limit) {
 			if (block_end > lowmem_limit)
@@ -1264,15 +1245,16 @@ void __init adjust_lowmem_bounds(void)
 
 static inline void prepare_page_table(void)
 {
-	unsigned long addr = 0;
+	unsigned long addr;
 	phys_addr_t end;
 
 	/*
 	 * Clear out all the mappings below the kernel image.
 	 */
-#ifdef CONFIG_XIP_KERNEL
-	for ( ; addr < MODULES_VADDR; addr += PMD_SIZE)
+	for (addr = 0; addr < MODULES_VADDR; addr += PMD_SIZE)
 		pmd_clear(pmd_off_k(addr));
+
+#ifdef CONFIG_XIP_KERNEL
 	/* The XIP kernel is mapped in the module area -- skip over it */
 	addr = ((unsigned long)_exiprom + PMD_SIZE - 1) & PMD_MASK;
 #endif

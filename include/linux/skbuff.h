@@ -40,6 +40,11 @@
 #include <linux/in6.h>
 #include <linux/if_packet.h>
 #include <net/flow.h>
+#ifdef VENDOR_EDIT
+//Add for limit speed function
+#include <linux/imq.h>
+#endif /* VENDOR_EDIT */
+
 
 /* The interface for checksum offload between the stack and networking drivers
  * is as follows...
@@ -693,15 +698,30 @@ struct sk_buff {
 	 * first. This is owned by whoever has the skb queued ATM.
 	 */
 	char			cb[48] __aligned(8);
+#ifdef VENDOR_EDIT
+//Add for limit speed function
+	void			*cb_next;
+#endif /* VENDOR_EDIT */
+	union {
+		struct {
+			unsigned long	_skb_refdst;
+			void		(*destructor)(struct sk_buff *skb);
+		};
+		struct list_head	tcp_tsorted_anchor;
+	};
 
-	unsigned long		_skb_refdst;
-	void			(*destructor)(struct sk_buff *skb);
 #ifdef CONFIG_XFRM
 	struct	sec_path	*sp;
 #endif
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	unsigned long		 _nfct;
 #endif
+
+#ifdef VENDOR_EDIT
+//Add for limit speed function
+       struct nf_queue_entry   *nf_queue_entry;
+#endif /* VENDOR_EDIT */
+
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	struct nf_bridge_info	*nf_bridge;
 #endif
@@ -782,6 +802,12 @@ struct sk_buff {
 #ifdef CONFIG_NET_SWITCHDEV
 	__u8			offload_fwd_mark:1;
 #endif
+
+#ifdef VENDOR_EDIT
+//Add for limit speed function
+	__u8			imq_flags:IMQ_F_BITS;
+#endif /* VENDOR_EDIT */
+
 #ifdef CONFIG_NET_CLS_ACT
 	__u8			tc_skip_classify:1;
 	__u8			tc_at_ingress:1;
@@ -970,6 +996,14 @@ void skb_tx_error(struct sk_buff *skb);
 void consume_skb(struct sk_buff *skb);
 void __consume_stateless_skb(struct sk_buff *skb);
 void  __kfree_skb(struct sk_buff *skb);
+
+#ifdef VENDOR_EDIT
+//Add for limit speed function
+int skb_save_cb(struct sk_buff *skb);
+int skb_restore_cb(struct sk_buff *skb);
+#endif /* VENDOR_EDIT */
+
+
 extern struct kmem_cache *skbuff_head_cache;
 
 void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
@@ -1317,12 +1351,10 @@ static inline void skb_zcopy_clear(struct sk_buff *skb, bool zerocopy)
 	struct ubuf_info *uarg = skb_zcopy(skb);
 
 	if (uarg) {
-		if (skb_zcopy_is_nouarg(skb)) {
-			/* no notification callback */
-		} else if (uarg->callback == sock_zerocopy_callback) {
+		if (uarg->callback == sock_zerocopy_callback) {
 			uarg->zerocopy = uarg->zerocopy && zerocopy;
 			sock_zerocopy_put(uarg);
-		} else {
+		} else if (!skb_zcopy_is_nouarg(skb)) {
 			uarg->callback(uarg, zerocopy);
 		}
 
@@ -1351,19 +1383,6 @@ static inline int skb_queue_empty(const struct sk_buff_head *list)
 {
 	return list->next == (const struct sk_buff *) list;
 }
-
-/**
- *	skb_queue_empty_lockless - check if a queue is empty
- *	@list: queue head
- *
- *	Returns true if the queue is empty, false otherwise.
- *	This variant can be used in lockless contexts.
- */
-static inline bool skb_queue_empty_lockless(const struct sk_buff_head *list)
-{
-	return READ_ONCE(list->next) == (const struct sk_buff *) list;
-}
-
 
 /**
  *	skb_queue_is_last - check if skb is the last entry in the queue
@@ -1661,7 +1680,7 @@ static inline struct sk_buff *skb_peek_next(struct sk_buff *skb,
  */
 static inline struct sk_buff *skb_peek_tail(const struct sk_buff_head *list_)
 {
-	struct sk_buff *skb = READ_ONCE(list_->prev);
+	struct sk_buff *skb = list_->prev;
 
 	if (skb == (struct sk_buff *)list_)
 		skb = NULL;
@@ -1729,13 +1748,9 @@ static inline void __skb_insert(struct sk_buff *newsk,
 				struct sk_buff *prev, struct sk_buff *next,
 				struct sk_buff_head *list)
 {
-	/* See skb_queue_empty_lockless() and skb_peek_tail()
-	 * for the opposite READ_ONCE()
-	 */
-	WRITE_ONCE(newsk->next, next);
-	WRITE_ONCE(newsk->prev, prev);
-	WRITE_ONCE(next->prev, newsk);
-	WRITE_ONCE(prev->next, newsk);
+	newsk->next = next;
+	newsk->prev = prev;
+	next->prev  = prev->next = newsk;
 	list->qlen++;
 }
 
@@ -1746,11 +1761,11 @@ static inline void __skb_queue_splice(const struct sk_buff_head *list,
 	struct sk_buff *first = list->next;
 	struct sk_buff *last = list->prev;
 
-	WRITE_ONCE(first->prev, prev);
-	WRITE_ONCE(prev->next, first);
+	first->prev = prev;
+	prev->next = first;
 
-	WRITE_ONCE(last->next, next);
-	WRITE_ONCE(next->prev, last);
+	last->next = next;
+	next->prev = last;
 }
 
 /**
@@ -1891,8 +1906,8 @@ static inline void __skb_unlink(struct sk_buff *skb, struct sk_buff_head *list)
 	next	   = skb->next;
 	prev	   = skb->prev;
 	skb->next  = skb->prev = NULL;
-	WRITE_ONCE(next->prev, prev);
-	WRITE_ONCE(prev->next, next);
+	next->prev = prev;
+	prev->next = next;
 }
 
 /**
@@ -2598,8 +2613,7 @@ static inline int skb_orphan_frags(struct sk_buff *skb, gfp_t gfp_mask)
 {
 	if (likely(!skb_zcopy(skb)))
 		return 0;
-	if (!skb_zcopy_is_nouarg(skb) &&
-	    skb_uarg(skb)->callback == sock_zerocopy_callback)
+	if (skb_uarg(skb)->callback == sock_zerocopy_callback)
 		return 0;
 	return skb_copy_ubufs(skb, gfp_mask);
 }
@@ -3853,6 +3867,13 @@ static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src,
 	dst->_nfct = src->_nfct;
 	nf_conntrack_get(skb_nfct(src));
 #endif
+
+#ifdef VENDOR_EDIT
+//Add for limit speed function
+  dst->imq_flags = src->imq_flags;
+  dst->nf_queue_entry = src->nf_queue_entry;
+#endif /* VENDOR_EDIT */
+
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	dst->nf_bridge  = src->nf_bridge;
 	nf_bridge_get(src->nf_bridge);

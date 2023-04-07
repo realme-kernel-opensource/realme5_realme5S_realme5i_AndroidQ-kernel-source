@@ -627,10 +627,18 @@ static void msm_isp_update_framedrop_reg(struct msm_vfe_axi_stream *stream_info,
 			stream_info->current_framedrop_period =
 				MSM_VFE_STREAM_STOP_PERIOD;
 	}
-
-	if (stream_info->undelivered_request_cnt > 0)
-		stream_info->current_framedrop_period =
-			MSM_VFE_STREAM_STOP_PERIOD;
+#ifdef VENDOR_EDIT
+		if (stream_info->undelivered_request_cnt > 0)
+			stream_info->current_framedrop_period =
+				MSM_VFE_STREAM_STOP_PERIOD;
+#else
+		if (stream_info->undelivered_request_cnt > 0 &&
+			drop_reconfig != 1)
+			stream_info->current_framedrop_period =
+				MSM_VFE_STREAM_STOP_PERIOD;
+		if (stream_info->controllable_output && drop_reconfig == 1)
+			stream_info->current_framedrop_period = 1;
+#endif
 	/*
 	 * re-configure the period pattern, only if it's not already
 	 * set to what we want
@@ -692,8 +700,7 @@ void msm_isp_process_reg_upd_epoch_irq(struct vfe_device *vfe_dev,
 				uint32_t drop_reconfig =
 					vfe_dev->isp_page->drop_reconfig;
 				if (stream_info->num_isp > 1 &&
-					vfe_dev->pdev->id == ISP_VFE0 &&
-					!vfe_dev->dual_vfe_sync_mode) {
+					vfe_dev->pdev->id == ISP_VFE0) {
 					c_data = vfe_dev->common_data;
 					temp = c_data->dual_vfe_res->vfe_dev[
 						ISP_VFE1];
@@ -894,9 +901,6 @@ static void msm_isp_sync_dual_cam_frame_id(
 				ms_res->src_info[i]->dual_hw_ms_info.index);
 		}
 	}
-	/* the number of frames that are dropped */
-	vfe_dev->isp_page->dual_cam_drop =
-				frame_id - (src_info->frame_id + 1);
 	ms_res->active_src_mask |= (1 << src_info->dual_hw_ms_info.index);
 	src_info->frame_id = frame_id;
 	src_info->dual_hw_ms_info.sync_state = MSM_ISP_DUAL_CAM_SYNC;
@@ -934,8 +938,6 @@ void msm_isp_increment_frame_id(struct vfe_device *vfe_dev,
 				src_info->dual_hw_ms_info.index)) {
 				pr_err_ratelimited("Frame out of sync on vfe %d\n",
 					vfe_dev->pdev->id);
-				/* Notify to do reconfig at SW sync drop*/
-				vfe_dev->isp_page->dual_cam_drop_detected = 1;
 				/*
 				 * set this isp as async mode to force
 				 *it sync again at the next sof
@@ -1153,19 +1155,6 @@ void msm_isp_notify(struct vfe_device *vfe_dev, uint32_t event_type,
 
 	default:
 		break;
-	}
-
-	if ((vfe_dev->nanosec_ts_enable) &&
-		(event_type == ISP_EVENT_SOF) &&
-			(frame_src == VFE_PIX_0)) {
-		struct msm_isp_event_data_nanosec event_data_nanosec;
-
-		event_data_nanosec.frame_id =
-			vfe_dev->axi_data.src_info[frame_src].frame_id;
-		event_data_nanosec.nano_timestamp = ts->buf_time_ns;
-		msm_isp_send_event_update_nanosec(vfe_dev,
-			ISP_EVENT_SOF_UPDATE_NANOSEC,
-			&event_data_nanosec);
 	}
 
 	event_data.frame_id = vfe_dev->axi_data.src_info[frame_src].frame_id;
@@ -2346,8 +2335,8 @@ static int msm_isp_process_done_buf(struct vfe_device *vfe_dev,
 			MSM_ISP_BUFFER_STATE_PUT_BUF;
 		buf->buf_debug.put_state_last ^= 1;
 		rc = vfe_dev->buf_mgr->ops->buf_done(vfe_dev->buf_mgr,
-		 buf->bufq_handle, buf->buf_idx, time_stamp,
-		 frame_id, stream_info->runtime_output_format);
+			buf->bufq_handle, buf->buf_idx, time_stamp,
+			frame_id, stream_info->runtime_output_format);
 		if (rc == -EFAULT) {
 			msm_isp_halt_send_error(vfe_dev,
 					ISP_EVENT_BUF_FATAL_ERROR);
@@ -2414,14 +2403,14 @@ int msm_isp_drop_frame(struct vfe_device *vfe_dev,
 		/*this notify is per ping and pong buffer*/
 		done_buf->is_drop_reconfig = 1;
 		stream_info->current_framedrop_period = 1;
+		/*Avoid Multiple request frames for single SOF*/
+		vfe_dev->axi_data.src_info[VFE_PIX_0].accept_frame = false;
 
 		if (stream_info->current_framedrop_period !=
 			stream_info->requested_framedrop_period) {
 			msm_isp_cfg_framedrop_reg(stream_info);
 		}
 	}
-	/* Avoid Multiple request frames for single SOF */
-	vfe_dev->axi_data.src_info[VFE_PIX_0].accept_frame = false;
 	spin_unlock_irqrestore(&stream_info->lock, flags);
 
 	/* if buf done will not come, we need to process it ourself */
@@ -2469,10 +2458,6 @@ static void msm_isp_input_disable(struct vfe_device *vfe_dev, int cmd_type)
 		/* deactivate the input line */
 		axi_data->src_info[i].active = 0;
 		src_info = &axi_data->src_info[i];
-		if (i == VFE_PIX_0)
-			vfe_dev->isp_page->kernel_sofid = 0;
-
-		vfe_dev->axi_data.src_info[i].frame_id = 0;
 
 		if (src_info->dual_hw_type == DUAL_HW_MASTER_SLAVE) {
 			struct master_slave_resource_info *ms_res =
@@ -3741,8 +3726,7 @@ static int msm_isp_request_frame(struct vfe_device *vfe_dev,
 		vfe_dev->hw_info->vfe_ops.axi_ops.get_pingpong_status(vfe_dev);
 
 	/* As MCT is still processing it, need to drop the additional requests*/
-	if (vfe_dev->isp_page->drop_reconfig &&
-		frame_src == VFE_PIX_0) {
+	if (vfe_dev->isp_page->drop_reconfig) {
 		pr_err("%s: MCT has not yet delayed %d drop request %d\n",
 			__func__, vfe_dev->isp_page->drop_reconfig, frame_id);
 		goto error;

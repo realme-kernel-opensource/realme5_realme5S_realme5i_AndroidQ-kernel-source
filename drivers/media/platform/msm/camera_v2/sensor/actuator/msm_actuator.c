@@ -26,9 +26,15 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #endif
 
+#ifndef VENDOR_EDIT
 #define PARK_LENS_LONG_STEP 7
 #define PARK_LENS_MID_STEP 5
 #define PARK_LENS_SMALL_STEP 3
+#else //zhaoyuyang@caemra Add to avoid VCM clash 20190923
+#define PARK_LENS_LONG_STEP 3
+#define PARK_LENS_MID_STEP 3
+#define PARK_LENS_SMALL_STEP 3
+#endif
 #define MAX_QVALUE 4096
 
 static struct v4l2_file_operations msm_actuator_v4l2_subdev_fops;
@@ -846,8 +852,12 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 	next_lens_pos = a_ctrl->step_position_table[a_ctrl->curr_step_pos];
 	while (next_lens_pos) {
 		/* conditions which help to reduce park lens time */
+        #ifndef VENDOR_EDIT
 		if (next_lens_pos > (a_ctrl->park_lens.max_step *
 			PARK_LENS_LONG_STEP)) {
+        #else //zhaoyuyang@camera Add to avoid VCM clash 20190923
+		if (next_lens_pos > 300) {
+        #endif
 			next_lens_pos = next_lens_pos -
 				(a_ctrl->park_lens.max_step *
 				PARK_LENS_LONG_STEP);
@@ -885,7 +895,11 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 		}
 		a_ctrl->i2c_tbl_index = 0;
 		/* Use typical damping time delay to avoid tick sound */
+        #ifndef VENDOR_EDIT
 		usleep_range(10000, 12000);
+        #else //zhaoyuyang@camera Add to avoid VCM clash 20190923
+        usleep_range(14000, 16000);
+        #endif
 	}
 
 	return 0;

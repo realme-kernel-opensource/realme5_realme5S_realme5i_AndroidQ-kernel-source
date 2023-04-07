@@ -18,11 +18,43 @@
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
 
+#ifdef VENDOR_EDIT
+#include <linux/proc_fs.h>
+
+#define EEPROM_REG_MODULE_ID_L     0x00
+#define EEPROM_REG_MODULE_ID_H     0x01
+#define EEPROM_REG_MODULE_DAY      0x02
+#define EEPROM_REG_MODULE_MONTH    0x03
+#define EEPROM_REG_MODULE_YEAR_L   0x04
+#define EEPROM_REG_MODULE_YEAR_H   0x05
+#define EEPROM_REG_SENSOR_ID_L     0x06
+#define EEPROM_REG_SENSOR_ID_H     0x07
+#define EEPROM_REG_LENS_ID_L       0x08
+#define EEPROM_REG_LENS_ID_H       0x09
+#define EEPROM_REG_VCM_ID_L     0x0A
+#define EEPROM_REG_VCM_ID_H     0x0B
+#define EEPROM_BASE_INFO_SIZE   (EEPROM_REG_VCM_ID_H+1)
+#endif
+
+
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
 static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl;
 static struct msm_camera_i2c_fn_t msm_sensor_secure_func_tbl;
+
+uint16_t rear_module = 0;
+uint16_t rear_sensor = 0;
+uint16_t front_module = 0;
+uint16_t front_sensor = 0;
+/*oppo hufeng 20170224 add for back aux camera module vendor info*/
+uint16_t rear2_module = 0;
+uint16_t rear2_sensor = 0;
+/*bit1 front, bit0 rear*/
+uint16_t eeprom_probe_info = 0x0000;
+static uint8_t rear_module_flag = 0x0;
+static uint8_t front_module_flag = 0x0;
+static uint8_t rear2_module_flag = 0x0;
 
 static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
 {
@@ -241,6 +273,300 @@ static uint16_t msm_sensor_id_by_mask(struct msm_sensor_ctrl_t *s_ctrl,
 	return sensor_id;
 }
 
+#ifdef VENDOR_EDIT
+static int at_msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	if (msm_sensor_power_down(s_ctrl)< 0) {
+		pr_err("%s:%d error \n", __func__,__LINE__);
+		return -1;
+	}
+	s_ctrl->sensor_state = MSM_SENSOR_POWER_DOWN;
+	return 0;
+}
+static int at_msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
+{
+
+	printk("%s sensor is %s\n", __func__,s_ctrl->sensordata->sensor_name);
+
+	if (msm_sensor_power_up(s_ctrl)< 0) {
+		pr_err("%s:%d error \n", __func__,__LINE__);
+		return -1;
+	}
+	s_ctrl->sensor_state = MSM_SENSOR_POWER_UP;
+	return 0;
+}
+
+static int msm_eeprom_proc_init(struct msm_sensor_ctrl_t *s_ctrl);
+static int msm_sensor_read_moduleinfo(struct msm_sensor_ctrl_t *s_ctrl, const char *sensor_name)
+{
+	int rc = 0;
+	uint16_t id_low = 0, id_high = 0;
+	uint16_t tmp_sid = 0;
+	uint32_t addr = 0x0;
+	struct msm_camera_i2c_client *sensor_i2c_client;
+	uint8_t memptr[EEPROM_BASE_INFO_SIZE];
+
+	memset(memptr, 0, sizeof(memptr));
+
+	/*read module and sensor id*/
+
+	sensor_i2c_client = s_ctrl->sensor_i2c_client;
+
+	tmp_sid = sensor_i2c_client->cci_client->sid;
+
+	if (s_ctrl->id == 0) {
+        if (rear_module_flag & 0x01)
+            goto exit;
+	    sensor_i2c_client->cci_client->sid = 0xA0 >> 1;
+	    addr = 0x0;
+	    rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+				sensor_i2c_client, addr,
+				memptr, EEPROM_BASE_INFO_SIZE);
+	    if (rc < 0) {
+	        pr_err("%s: read failed\n", __func__);
+	        //return rc;
+	    }
+
+	    id_low = memptr[EEPROM_REG_MODULE_ID_L];
+	    id_high = memptr[EEPROM_REG_MODULE_ID_H];
+	    s_ctrl->module_info = (id_high<<8) | id_low;
+	    rear_module= s_ctrl->module_info;
+	    rear_module_flag |= 0x01;
+	    msm_eeprom_proc_init(s_ctrl);
+	} else if (s_ctrl->id == 1) {
+        if (front_module_flag & 0x01)
+            goto exit;
+	    addr = 0x0;
+        if (strcmp(sensor_name,"s5k4h7_sunny") == 0){
+            sensor_i2c_client->cci_client->sid = 0x20 >> 1;
+            addr = 0x0A04;
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0100,
+                0x01, MSM_CAMERA_I2C_BYTE_DATA);
+            msleep(8);
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0A02,
+                21, MSM_CAMERA_I2C_BYTE_DATA);
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0A00,
+                0x01, MSM_CAMERA_I2C_BYTE_DATA);
+            msleep(8);
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+                sensor_i2c_client, addr,
+                memptr, EEPROM_BASE_INFO_SIZE);
+            if (rc < 0) {
+                pr_err("%s: read failed\n", __func__);
+                //return rc;
+            }
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0A00,
+                0x00, MSM_CAMERA_I2C_BYTE_DATA);
+
+            id_low = memptr[EEPROM_REG_MODULE_ID_L];
+            id_high = memptr[EEPROM_REG_MODULE_ID_H];
+            s_ctrl->module_info = (id_high<<8) | id_low;
+            front_module = s_ctrl->module_info;
+
+            printk("s5k4h7_sunny_front_module = 0x%x",front_module);
+
+            if(front_module != 0x09) {
+                printk("it's not holitech module");
+                //return -1;
+            }
+            front_module_flag |= 0x01;
+        } if (strcmp(sensor_name,"s5k4h7_sunny_2nd") == 0){
+            sensor_i2c_client->cci_client->sid = 0x20 >> 1;
+            addr = 0x0A04;
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0100,
+                0x01, MSM_CAMERA_I2C_BYTE_DATA);
+            msleep(8);
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0A02,
+                21, MSM_CAMERA_I2C_BYTE_DATA);
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0A00,
+                0x01, MSM_CAMERA_I2C_BYTE_DATA);
+            msleep(8);
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+                sensor_i2c_client, addr,
+                memptr, EEPROM_BASE_INFO_SIZE);
+            if (rc < 0) {
+                pr_err("%s: read failed\n", __func__);
+                //return rc;
+            }
+
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                sensor_i2c_client, 0x0A00,
+                0x00, MSM_CAMERA_I2C_BYTE_DATA);
+
+            id_low = memptr[EEPROM_REG_MODULE_ID_L];
+            id_high = memptr[EEPROM_REG_MODULE_ID_H];
+            s_ctrl->module_info = (id_high<<8) | id_low;
+            front_module = s_ctrl->module_info;
+
+            printk("s5k4h7_sunny_2nd_front_module = 0x%x",front_module);
+
+            if(front_module != 0x1b) {
+               printk("it's not holitech module");
+               //return -1;
+            }
+            front_module_flag |= 0x01;
+        } else if (strcmp(sensor_name,"s5k4h7") == 0) {
+	        sensor_i2c_client->cci_client->sid = 0x20 >> 1;
+	        addr = 0x0A04;
+
+	        rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+				sensor_i2c_client, 0x0100,
+				0x01, MSM_CAMERA_I2C_BYTE_DATA);
+	        msleep(8);
+
+	        rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+				sensor_i2c_client, 0x0A02,
+				21, MSM_CAMERA_I2C_BYTE_DATA);
+
+	        rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+				sensor_i2c_client, 0x0A00,
+				0x01, MSM_CAMERA_I2C_BYTE_DATA);
+	        msleep(8);
+
+	        rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+				sensor_i2c_client, addr,
+				memptr, EEPROM_BASE_INFO_SIZE);
+	        if (rc < 0) {
+	            pr_err("%s: read failed\n", __func__);
+	            //return rc;
+	        }
+
+	        rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+				sensor_i2c_client, 0x0A00,
+				0x00, MSM_CAMERA_I2C_BYTE_DATA);
+
+            id_low = memptr[EEPROM_REG_MODULE_ID_L];
+            id_high = memptr[EEPROM_REG_MODULE_ID_H];
+            s_ctrl->module_info = (id_high<<8) | id_low;
+            front_module = s_ctrl->module_info;
+            front_module_flag |= 0x01;
+	    } else if (strcmp(sensor_name,"s5k3p9sp") == 0) {
+	        sensor_i2c_client->cci_client->sid = 0xA8 >> 1;
+
+	        rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+				sensor_i2c_client, addr,
+				memptr, EEPROM_BASE_INFO_SIZE);
+	        if (rc < 0) {
+	            pr_err("%s: read failed\n", __func__);
+	            //return rc;
+	        }
+
+            id_low = memptr[EEPROM_REG_MODULE_ID_L];
+            id_high = memptr[EEPROM_REG_MODULE_ID_H];
+            s_ctrl->module_info = (id_high<<8) | id_low;
+            front_module = s_ctrl->module_info;
+            front_module_flag |= 0x01;
+        }
+         msm_eeprom_proc_init(s_ctrl);
+
+	} else if (s_ctrl->id == 2) {
+        if (rear2_module_flag & 0x01)
+            goto exit;
+	    addr = 0x0;
+	    sensor_i2c_client->cci_client->sid = 0xA2 >> 1;
+
+	    rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+				sensor_i2c_client, addr,
+				memptr, EEPROM_BASE_INFO_SIZE);
+	    if (rc < 0) {
+	        pr_err("%s: read failed\n", __func__);
+	        //return rc;
+	    }
+
+	    id_low = memptr[EEPROM_REG_MODULE_ID_L];
+	    id_high = memptr[EEPROM_REG_MODULE_ID_H];
+	    s_ctrl->module_info = (id_high<<8) | id_low;
+	    rear2_module = s_ctrl->module_info;
+	    rear2_module_flag |= 0x01;
+	    msm_eeprom_proc_init(s_ctrl);
+	}
+
+exit:
+	sensor_i2c_client->cci_client->sid = tmp_sid;
+
+	pr_err("%s:%d: position %d, sensor = %s, moduleID = 0x%x\n",
+		__func__, __LINE__, s_ctrl->id, sensor_name, s_ctrl->module_info);
+
+	return rc;
+}
+
+
+static int __msm_proc_eeprom_show(struct seq_file *file, void *v)
+{
+	struct msm_sensor_ctrl_t *s_ctrl = (struct msm_sensor_ctrl_t *)file->private;
+	int len = 0;
+
+	if (s_ctrl) {
+		seq_printf(file, "%d", s_ctrl->module_info);
+	}
+
+	return len;
+}
+
+static int msm_proc_eeprom_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, __msm_proc_eeprom_show, PDE_DATA(inode));
+}
+
+static const struct file_operations msm_proc_eeprom_fops = {
+	.owner = THIS_MODULE,
+	.open = msm_proc_eeprom_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static int msm_eeprom_proc_init(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	struct proc_dir_entry *proc_entry;
+	char proc_name[64];
+
+	if (eeprom_probe_info & 1 << s_ctrl->id) {
+		pr_err("%s:%d: NOTE! eeprom of position %d was probed before!!\n",
+			__func__, __LINE__, s_ctrl->id);
+		return -EFAULT;
+	}
+
+	/*basic info*/
+	if (s_ctrl->id == 1) {
+		strcpy(proc_name, "front_");
+	} else if(s_ctrl->id == 0) {
+		strcpy(proc_name, "rear_");
+	} else if(s_ctrl->id == 2) {
+		strcpy(proc_name, "rear2_");
+	} else {
+		return -EFAULT;
+	}
+
+	strcat(proc_name, "eeprom_info");
+
+	proc_entry = proc_create_data(proc_name, 0666, NULL, &msm_proc_eeprom_fops, (void *)s_ctrl);
+	if (proc_entry == NULL) {
+		pr_err("%s:%d: proc_create_data failed", __func__, __LINE__);
+		return -ENOMEM;
+	}
+
+	eeprom_probe_info |= (1 << s_ctrl->id);
+	return 0;
+}
+#endif
+
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int rc = 0;
@@ -290,6 +616,12 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
+
+	#ifdef VENDOR_EDIT
+	rc = msm_sensor_read_moduleinfo(s_ctrl,sensor_name);
+	//msm_eeprom_proc_init(s_ctrl);
+	#endif
+
 	return rc;
 }
 
@@ -350,6 +682,27 @@ static long msm_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 		pr_err("%s s_ctrl NULL\n", __func__);
 		return -EBADF;
 	}
+#ifdef VENDOR_EDIT
+	if (cmd == 0 && arg == NULL) {
+		rc = at_msm_sensor_power_down(s_ctrl);
+		return rc;
+	}
+#ifndef VENDOR_EDIT
+	else if (cmd ==1 && arg == NULL) {
+		rc = at_msm_sensor_power_up(s_ctrl);
+#else
+	else if (cmd ==1) {
+		rc = at_msm_sensor_power_up(s_ctrl);
+		if(rc<0){
+			pr_err("%s power up err\n", __func__);
+			return rc;
+		}
+		if(argp!=NULL)
+			memcpy((char *)argp,s_ctrl->sensordata->sensor_name,16);
+#endif
+		return rc;
+	}
+#endif
 	switch (cmd) {
 	case VIDIOC_MSM_SENSOR_CFG:
 #ifdef CONFIG_COMPAT

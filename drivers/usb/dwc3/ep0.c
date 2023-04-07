@@ -408,6 +408,9 @@ static int dwc3_ep0_handle_status(struct dwc3 *dwc,
 	dwc->ep0_usb_req.request.length = sizeof(*response_pkt);
 	dwc->ep0_usb_req.request.buf = dwc->setup_buf;
 	dwc->ep0_usb_req.request.complete = dwc3_ep0_status_cmpl;
+#ifdef VENDOR_EDIT
+    dwc->ep0_usb_req.request.dma = DMA_ERROR_CODE;
+#endif
 
 	return __dwc3_gadget_ep0_queue(dep, &dwc->ep0_usb_req);
 }
@@ -722,6 +725,12 @@ static int dwc3_ep0_set_config(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 						DWC3_ENDPOINTS_NUM); num += 2) {
 				dep = dwc->eps[num];
 				size = 0;
+				/* Don't change TXFRAMNUM on usb31 version */
+				if (dwc3_is_usb31(dwc))
+					size = dwc3_readl(dwc->regs,
+						DWC3_GTXFIFOSIZ(num >> 1)) &
+						DWC31_GTXFIFOSIZ_TXFRAMNUM;
+
 				dwc3_writel(dwc->regs,
 					DWC3_GTXFIFOSIZ(num >> 1), size);
 				dep->fifo_depth = 0;
@@ -866,6 +875,10 @@ static int dwc3_ep0_set_sel(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 	dwc->ep0_usb_req.request.buf = dwc->setup_buf;
 	dwc->ep0_usb_req.request.complete = dwc3_ep0_set_sel_cmpl;
 
+#ifdef VENDOR_EDIT
+	dwc->ep0_usb_req.request.dma = DMA_ERROR_CODE;
+#endif /*VENDOR_EDIT*/
+
 	return __dwc3_gadget_ep0_queue(dep, &dwc->ep0_usb_req);
 }
 
@@ -934,19 +947,6 @@ static void dwc3_ep0_inspect_setup(struct dwc3 *dwc,
 
 	if (!dwc->gadget_driver)
 		goto out;
-
-	/*
-	 * A SETUP packet from previous session might get completed with delay
-	 * and get inspected before ConnectDone event for the new connection is
-	 * fired. This leads to controller not responding to fresh SETUP packets
-	 * anymore, even after fresh RESET from host.
-	 * Restart USB gadget if such delayed SETUP packet is inspected.
-	 */
-	if (!dwc->connected) {
-		dbg_event(0x0, "Setup_restart", 0);
-		dwc3_notify_event(dwc, DWC3_CONTROLLER_RESTART_USB_SESSION, 0);
-		return;
-	}
 
 	trace_dwc3_ctrl_req(ctrl);
 

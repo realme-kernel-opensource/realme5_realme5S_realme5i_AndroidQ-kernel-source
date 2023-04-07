@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,6 +35,8 @@
 #include <linux/soc/qcom/smem.h>
 #include <soc/qcom/boot_stats.h>
 
+#include <soc/oppo/oppo_project.h>
+
 #define BUILD_ID_LENGTH 32
 #define CHIP_ID_LENGTH 32
 #define SMEM_IMAGE_VERSION_BLOCKS_COUNT 32
@@ -67,7 +69,6 @@ enum {
 	HW_PLATFORM_STP = 23,
 	HW_PLATFORM_SBC = 24,
 	HW_PLATFORM_ADP = 25,
-	HW_PLATFORM_TTP = 30,
 	HW_PLATFORM_HDK = 31,
 	HW_PLATFORM_IOT = 32,
 	HW_PLATFORM_IDP = 34,
@@ -92,7 +93,6 @@ const char *hw_platform[] = {
 	[HW_PLATFORM_STP] = "STP",
 	[HW_PLATFORM_SBC] = "SBC",
 	[HW_PLATFORM_ADP] = "ADP",
-	[HW_PLATFORM_TTP] = "TTP",
 	[HW_PLATFORM_HDK] = "HDK",
 	[HW_PLATFORM_IOT] = "IOT",
 	[HW_PLATFORM_IDP] = "IDP"
@@ -269,6 +269,13 @@ struct socinfo_v0_15 {
 	uint32_t nmodem_supported;
 };
 
+//#ifdef ODM_WT_EDIT
+struct socinfo_v0_16 {
+	struct socinfo_v0_15 v0_15;
+	uint32_t board_nfc_support;
+};
+//#endif
+
 static union {
 	struct socinfo_v0_1 v0_1;
 	struct socinfo_v0_2 v0_2;
@@ -285,10 +292,19 @@ static union {
 	struct socinfo_v0_13 v0_13;
 	struct socinfo_v0_14 v0_14;
 	struct socinfo_v0_15 v0_15;
+    //#ifdef ODM_WT_EDIT
+	struct socinfo_v0_16 v0_16;
+    //#endif
 } *socinfo;
 
+//#if defined(VENDOR_EDIT) && defined(CONFIG_CONFIDENTIAL_EUCLID_VERSION)
+//static char *final_soc_id_string = "SM6150";
+//#else
+//static char *final_soc_id_string = "SM6125";
+//#endif /* VENDOR_EDIT */
+
 /* max socinfo format version supported */
-#define MAX_SOCINFO_FORMAT SOCINFO_VERSION(0, 15)
+#define MAX_SOCINFO_FORMAT SOCINFO_VERSION(0, 16)
 
 static struct msm_soc_info cpu_of_id[] = {
 	[0]  = {MSM_CPU_UNKNOWN, "Unknown CPU"},
@@ -356,14 +372,6 @@ static struct msm_soc_info cpu_of_id[] = {
 	[305] = {MSM_CPU_8996, "MSM8996pro"},
 	[312] = {MSM_CPU_8996, "APQ8096pro"},
 
-	/* 9607 IDs */
-	[290] = {MSM_CPU_9607, "MDM9607"},
-	[296] = {MSM_CPU_9607, "MDM8207"},
-	[297] = {MSM_CPU_9607, "MDM9207"},
-	[298] = {MSM_CPU_9607, "MDM9307"},
-	[299] = {MSM_CPU_9607, "MDM9628"},
-	[322] = {MSM_CPU_9607, "MDM9206"},
-
 	/* sm8150 ID */
 	[339] = {MSM_CPU_SM8150, "SM8150"},
 
@@ -390,8 +398,6 @@ static struct msm_soc_info cpu_of_id[] = {
 
 	/* qcs405 ID */
 	[352] = {MSM_CPU_QCS405, "QCS405"},
-	[451] = {MSM_CPU_QCS405, "SA2145P"},
-	[452] = {MSM_CPU_QCS405, "SA2150P"},
 
 	/* qcs404 ID */
 	[410] = {MSM_CPU_QCS404, "QCS404"},
@@ -426,8 +432,9 @@ static struct msm_soc_info cpu_of_id[] = {
 	[384] = {MSM_CPU_SA6155, "SA6155"},
 
 	/* trinket ID */
-	[394] = {MSM_CPU_TRINKET, "TRINKET"},
-
+	//#ifdef ODM_WT_EDIT
+	[394] = {MSM_CPU_TRINKET, "SDM665"},
+	//#endif
 	/* qcs610 ID */
 	[401] = {MSM_CPU_QCS610, "QCS610"},
 
@@ -443,20 +450,6 @@ static struct msm_soc_info cpu_of_id[] = {
 	/* atollab ID */
 	[443] = {MSM_CPU_ATOLL_AB, "ATOLL-AB"},
 
-	/* SDM660 ID */
-	[317] = {MSM_CPU_SDM660, "SDM660"},
-	[324] = {MSM_CPU_SDA660, "SDA660"},
-
-	/* SDM429W IDs*/
-	[416] = {MSM_CPU_SDM429W, "SDM429W"},
-	[437] = {MSM_CPU_SDA429W, "SDA429W"},
-
-	/* TRINKET-IOT IDs*/
-	[467] = {MSM_CPU_TRINKET_IOT, "TRINKET-IOT"},
-
-	/* TRINKETP-IOT IDs*/
-	[468] = {MSM_CPU_TRINKETP_IOT, "TRINKETP-IOT"},
-
 	/* Uninitialized IDs are not known to run Linux.
 	 * MSM_CPU_UNKNOWN is set to 0 to ensure these IDs are
 	 * considered as unknown CPU.
@@ -471,6 +464,10 @@ static struct socinfo_v0_1 dummy_socinfo = {
 	.format = SOCINFO_VERSION(0, 1),
 	.version = 1,
 };
+
+//#ifdef ODM_WT_EDIT
+uint32_t nfc_support_info;
+//#endif
 
 uint32_t socinfo_get_id(void)
 {
@@ -715,6 +712,13 @@ static uint32_t socinfo_get_nmodem_supported(void)
 			socinfo->v0_15.nmodem_supported : 0)
 		: 0;
 }
+
+//#ifdef ODM_WT_EDIT
+static uint32_t socinfo_get_board_nfc_support(void)
+{
+	return socinfo ? socinfo->v0_16.board_nfc_support : 0;
+}
+//#endif
 
 enum pmic_model socinfo_get_pmic_model(void)
 {
@@ -1015,6 +1019,17 @@ msm_get_pmic_die_revision(struct device *dev,
 			 socinfo_get_pmic_die_revision());
 }
 
+//#ifdef ODM_WT_EDIT
+static ssize_t
+msm_get_board_nfc_support(struct device *dev,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	return sprintf(buf, "%u\n",
+			 socinfo_get_board_nfc_support());
+}
+//#endif
+
 static ssize_t
 msm_get_image_version(struct device *dev,
 			struct device_attribute *attr,
@@ -1312,6 +1327,12 @@ static struct device_attribute msm_soc_attr_pmic_die_revision =
 	__ATTR(pmic_die_revision, 0444,
 			msm_get_pmic_die_revision, NULL);
 
+//#ifdef ODM_WT_EDIT
+static struct device_attribute msm_soc_attr_board_nfc_support =
+	__ATTR(board_nfc_support, 0444,
+			msm_get_board_nfc_support, NULL);
+//#endif
+
 static struct device_attribute image_version =
 	__ATTR(image_version, 0644,
 			msm_get_image_version, msm_set_image_version);
@@ -1405,10 +1426,6 @@ static void * __init setup_dummy_socinfo(void)
 		dummy_socinfo.id = 357;
 		strlcpy(dummy_socinfo.build_id, "sdxprairie - ",
 		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_mdm9607()) {
-		dummy_socinfo.id = 290;
-		strlcpy(dummy_socinfo.build_id, "mdm9607 - ",
-		sizeof(dummy_socinfo.build_id));
 	} else if (early_machine_is_sdmmagpie()) {
 		dummy_socinfo.id = 365;
 		strlcpy(dummy_socinfo.build_id, "sdmmagpie - ",
@@ -1453,30 +1470,6 @@ static void * __init setup_dummy_socinfo(void)
 		dummy_socinfo.id = 443;
 		strlcpy(dummy_socinfo.build_id, "atoll-ab - ",
 		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_sdm660()) {
-		dummy_socinfo.id = 317;
-		strlcpy(dummy_socinfo.build_id, "sdm660 - ",
-		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_sda660()) {
-		dummy_socinfo.id = 324;
-		strlcpy(dummy_socinfo.build_id, "sda660 - ",
-		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_sdm429w()) {
-		dummy_socinfo.id = 416;
-		strlcpy(dummy_socinfo.build_id, "sdm429w - ",
-		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_sda429w()) {
-		dummy_socinfo.id = 437;
-		strlcpy(dummy_socinfo.build_id, "sda429w - ",
-		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_trinket_iot()) {
-		dummy_socinfo.id = 467;
-		strlcpy(dummy_socinfo.build_id, "trinket-iot - ",
-		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_trinketp_iot()) {
-		dummy_socinfo.id = 468;
-		strlcpy(dummy_socinfo.build_id, "trinketp-iot - ",
-		sizeof(dummy_socinfo.build_id));
 	} else
 		strlcat(dummy_socinfo.build_id, "Dummy socinfo",
 			sizeof(dummy_socinfo.build_id));
@@ -1492,6 +1485,9 @@ static void __init populate_soc_sysfs_files(struct device *msm_soc_device)
 	device_create_file(msm_soc_device, &image_crm_version);
 	device_create_file(msm_soc_device, &select_image);
 	device_create_file(msm_soc_device, &images);
+     //#ifdef ODM_WT_EDIT
+	device_create_file(msm_soc_device, &msm_soc_attr_board_nfc_support);
+     //#endif
 
 	switch (socinfo_format) {
 	case SOCINFO_VERSION(0, 15):
@@ -1788,11 +1784,75 @@ static void socinfo_print(void)
 			socinfo->v0_15.nmodem_supported);
 		break;
 
+    //#ifdef ODM_WT_EDIT
+	case SOCINFO_VERSION(0, 16):
+		pr_info("v%u.%u, id=%u, ver=%u.%u, raw_id=%u, raw_ver=%u, hw_plat=%u, hw_plat_ver=%u\n accessory_chip=%u, hw_plat_subtype=%u, pmic_model=%u, pmic_die_revision=%u foundry_id=%u serial_number=%u num_pmics=%u chip_family=0x%x raw_device_family=0x%x raw_device_number=0x%x nproduct_id=0x%x num_clusters=0x%x ncluster_array_offset=0x%x num_defective_parts=0x%x ndefective_parts_array_offset=0x%x nmodem_supported=0x%x board_nfc_support=%u\n",
+			f_maj, f_min, socinfo->v0_1.id, v_maj, v_min,
+			socinfo->v0_2.raw_id, socinfo->v0_2.raw_version,
+			socinfo->v0_3.hw_platform,
+			socinfo->v0_4.platform_version,
+			socinfo->v0_5.accessory_chip,
+			socinfo->v0_6.hw_platform_subtype,
+			socinfo->v0_7.pmic_model,
+			socinfo->v0_7.pmic_die_revision,
+			socinfo->v0_9.foundry_id,
+			socinfo->v0_10.serial_number,
+			socinfo->v0_11.num_pmics,
+			socinfo->v0_12.chip_family,
+			socinfo->v0_12.raw_device_family,
+			socinfo->v0_12.raw_device_number,
+			socinfo->v0_13.nproduct_id,
+			socinfo->v0_14.num_clusters,
+			socinfo->v0_14.ncluster_array_offset,
+			socinfo->v0_14.num_defective_parts,
+			socinfo->v0_14.ndefective_parts_array_offset,
+			socinfo->v0_15.nmodem_supported,
+			socinfo->v0_16.board_nfc_support);
+		break;
+    //#endif
+
 	default:
 		pr_err("Unknown format found: v%u.%u\n", f_maj, f_min);
 		break;
 	}
 }
+
+//#ifdef ODM_WT_EDIT
+static unsigned int str2u(char *str)
+{
+	int len = 0;
+	int i = 0;
+	unsigned int val = 0;
+
+	len = strlen(str);
+
+	for (i = 0; i < len; i++) {
+		val = val*10 + (str[i] - '0');
+	}
+
+	return val;
+}
+
+static int __init modem_id_get(char *value)
+{
+	nfc_support_info = str2u(value);
+    pr_info("%s ModemID= %u\n ",__func__,nfc_support_info);
+    return 0;
+}
+__setup("modemId=", modem_id_get);
+
+static void detect_board_nfc_support(void)
+{
+	if(nfc_support_info == 1 || nfc_support_info == 2 || nfc_support_info == 4 || nfc_support_info == 5){
+
+		socinfo->v0_16.board_nfc_support = 0;
+	}
+	else if(nfc_support_info == 3){
+		socinfo->v0_16.board_nfc_support = 1;
+	}
+	pr_info("%s board_nfc_support= %u\n ", __func__, socinfo->v0_16.board_nfc_support);
+}
+//#endif
 
 static void socinfo_select_format(void)
 {
@@ -1840,7 +1900,13 @@ int __init socinfo_init(void)
 		pr_warn("New IDs added! ID => CPU mapping needs an update.\n");
 
 	cur_cpu = cpu_of_id[socinfo->v0_1.id].generic_soc_type;
+	//#ifdef VENDOR_EDIT
+	//cpu_of_id[socinfo->v0_1.id].soc_id_string = final_soc_id_string;
+	//#endif /* VENDOR_EDIT */
 	boot_stats_init();
+    //#ifdef ODM_WT_EDIT
+	detect_board_nfc_support();
+	//#endif
 	socinfo_print();
 	arch_read_hardware_id = msm_read_hardware_id;
 	socinfo_init_done = true;

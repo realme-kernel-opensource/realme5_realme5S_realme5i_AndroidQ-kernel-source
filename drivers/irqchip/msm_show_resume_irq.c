@@ -15,7 +15,11 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 
+#ifdef VENDOR_EDIT
+int msm_show_resume_irq_mask = 1;
+#else
 int msm_show_resume_irq_mask;
+#endif /*VENDOR_EDIT*/
 
 module_param_named(
 	debug_mask, msm_show_resume_irq_mask, int, 0664);

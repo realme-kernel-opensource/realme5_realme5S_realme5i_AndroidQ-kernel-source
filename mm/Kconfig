@@ -746,12 +746,12 @@ config MIGRATE_VMA_HELPER
 
 config HMM
 	bool
-	select MMU_NOTIFIER
 	select MIGRATE_VMA_HELPER
 
 config HMM_MIRROR
 	bool "HMM mirror CPU page table into a device page table"
 	depends on ARCH_HAS_HMM
+	select MMU_NOTIFIER
 	select HMM
 	help
 	  Select HMM_MIRROR if you want to mirror range of the CPU page table of a
@@ -828,7 +828,12 @@ config HAVE_LOW_MEMORY_KILLER
 
 config PROCESS_RECLAIM
 	bool "Enable process reclaim"
-	depends on PROC_FS
+#if defined(VENDOR_EDIT)
+# during process recalim to fix blackscreen,task_is_fg depends on OPPO_FG_OPT
+	depends on PROC_FS && OPPO_FG_OPT
+#else
+#	depends on PROC_FS
+#endif
 	default y
 	help
 	 It allows to reclaim pages of the process by /proc/pid/reclaim.
@@ -842,12 +847,53 @@ config PROCESS_RECLAIM
 
 	 Any other value is ignored.
 
-config FORCE_ALLOC_FROM_DMA_ZONE
-	bool "Force certain memory allocators to always return ZONE_DMA memory"
-	depends on ZONE_DMA
+config VIRTUAL_RESERVE_MEMORY
+	bool "reserved vma for gpu emergency mmap"
+	default n
 	help
-	  Ensure certain memory allocators always return memory from ZONE_DMA.
-	  This option helps ensure that clients who require ZONE_DMA memory are
-	  always using ZONE_DMA memory.
+	 support reserved vma for gpu emergency mmap.
+#endif /* VENDOR_EDIT */
 
-	  If unsure, say "n".
+# if defined(VENDOR_EDIT)
+# inactive pages only
+config PROCESS_RECLAIM_ENHANCE
+	bool "Enable process reclaim enchance"
+	depends on PROCESS_RECLAIM
+	default y
+	help
+	 It allows to reclaim different type pages of the process by
+	 /proc/pid/reclaim.
+
+	 (echo inactive_file > /proc/PID/reclaim) reclaims inactive file-backed
+		pages only.
+	 (echo inactive_anon > /proc/PID/reclaim) reclaims inactive anonymous
+		pages only.
+	 (echo inactive > /proc/PID/reclaim) reclaims inactive file-backed and
+		anonymous pages only.
+	 Any other vaule, please reference PROCESS_RECLAIM.
+# endif
+
+#ifdef VENDOR_EDIT
+config OPPO_MEM_MONITOR
+	bool "memory monitor "
+	default n
+	help
+	 memory monitor.
+#endif /*VENDOR_EDIT*/
+# if defined(VENDOR_EDIT)
+# inactive pages only
+config PROCESS_RECLAIM_ENHANCE
+	bool "Enable process reclaim enchance"
+	depends on PROCESS_RECLAIM
+	default y
+	help
+	 It allows to reclaim different type pages of the process by
+	 /proc/pid/reclaim.
+
+	 (echo inactive_file > /proc/PID/reclaim) reclaims inactive file-backed
+		pages only.
+	 (echo inactive_anon > /proc/PID/reclaim) reclaims inactive anonymous
+		pages only.
+	 (echo inactive > /proc/PID/reclaim) reclaims inactive file-backed and
+		anonymous pages only.
+	 Any other vaule, please reference PROCESS_RECLAIM.

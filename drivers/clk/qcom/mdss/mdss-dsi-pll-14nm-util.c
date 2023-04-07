@@ -45,14 +45,20 @@ static int mdss_pll_read_stored_trim_codes(
 		struct dfps_codes_info *codes_info =
 			&dsi_pll_res->dfps->codes_dfps[i];
 
-		pr_debug("valid=%d, vco_rate=%d, code %d %d\n",
+		pr_err("valid=%d, vco_rate=%lu, code %d %d\n",
 			codes_info->is_valid, codes_info->clk_rate,
 			codes_info->pll_codes.pll_codes_1,
 			codes_info->pll_codes.pll_codes_2);
 
+		#ifdef VENDOR_EDIT
+		if ((vco_clk_rate / 1000) != (codes_info->clk_rate / 1000) &&
+				codes_info->is_valid) {
+		#else
 		if (vco_clk_rate != codes_info->clk_rate &&
-				codes_info->is_valid)
-			continue;
+				codes_info->is_valid) {
+		#endif /* VENDOR_EDIT */
+				continue;
+		}
 
 		dsi_pll_res->cache_pll_trim_codes[0] =
 			codes_info->pll_codes.pll_codes_1;
@@ -67,7 +73,7 @@ static int mdss_pll_read_stored_trim_codes(
 		goto end_read;
 	}
 
-	pr_debug("core_kvco_code=0x%x core_vco_tune=0x%x\n",
+	pr_err("core_kvco_code=0x%x core_vco_tune=0x%x\n",
 			dsi_pll_res->cache_pll_trim_codes[0],
 			dsi_pll_res->cache_pll_trim_codes[1]);
 
@@ -1011,7 +1017,7 @@ int shadow_pll_vco_set_rate_14nm(struct clk_hw *hw, unsigned long rate,
 		return rc;
 	}
 
-	pr_debug("%s: ndx=%d base=%pK rate=%lu\n", __func__,
+	pr_err("%s: ndx=%d base=%pK rate=%lu\n", __func__,
 			pll->index, pll->pll_base, rate);
 
 	pll->vco_current_rate = rate;

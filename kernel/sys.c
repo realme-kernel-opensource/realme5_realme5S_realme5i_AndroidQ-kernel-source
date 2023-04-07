@@ -72,6 +72,11 @@
 #include <linux/uaccess.h>
 #include <asm/io.h>
 #include <asm/unistd.h>
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO) &&\
+	defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+#include <linux/resmap_account.h>
+#include <soc/oppo/oppo_healthinfo.h>
+#endif
 
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a, b)	(-EINVAL)
@@ -114,12 +119,6 @@
 #endif
 #ifndef SET_FP_MODE
 # define SET_FP_MODE(a,b)	(-EINVAL)
-#endif
-#ifndef SET_TAGGED_ADDR_CTRL
-# define SET_TAGGED_ADDR_CTRL(a)	(-EINVAL)
-#endif
-#ifndef GET_TAGGED_ADDR_CTRL
-# define GET_TAGGED_ADDR_CTRL()		(-EINVAL)
 #endif
 
 /*
@@ -1475,6 +1474,9 @@ int do_prlimit(struct task_struct *tsk, unsigned int resource,
 {
 	struct rlimit *rlim;
 	int retval = 0;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+	int rt_changed = 0;
+#endif
 
 	if (resource >= RLIM_NLIMITS)
 		return -EINVAL;
@@ -1516,11 +1518,35 @@ int do_prlimit(struct task_struct *tsk, unsigned int resource,
 	if (!retval) {
 		if (old_rlim)
 			*old_rlim = *rlim;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO) &&\
+	defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+		if (new_rlim) {
+			if (rlimit_svm_log && (resource == RLIMIT_STACK) &&
+					is_compat_task() &&
+					(new_rlim->rlim_cur > STACK_RLIMIT_OVERFFLOW))
+				rt_changed = 1;
+
+			*rlim = *new_rlim;
+		}
+#else
 		if (new_rlim)
 			*rlim = *new_rlim;
+#endif
+
 	}
 	task_unlock(tsk->group_leader);
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO) &&\
+	defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+
+	if (rt_changed) {
+		char msg[128] = {0};
+
+		snprintf(msg, 127, "{\"version\":1, \"pid\":%d, \"size\":%ld}",
+			current->tgid, (long)rlim->rlim_cur);
+		ohm_action_trig_with_msg(OHM_RLIMIT_MON, msg);
+	}
+#endif
 	/*
 	 * RLIMIT_CPU handling.   Note that the kernel fails to return an error
 	 * code if it rejected the user's attempt to set RLIMIT_CPU.  This is a
@@ -1869,7 +1895,7 @@ static int validate_prctl_map(struct prctl_mm_map *prctl_map)
 	((unsigned long)prctl_map->__m1 __op				\
 	 (unsigned long)prctl_map->__m2) ? 0 : -EINVAL
 	error  = __prctl_check_order(start_code, <, end_code);
-	error |= __prctl_check_order(start_data,<=, end_data);
+	error |= __prctl_check_order(start_data, <, end_data);
 	error |= __prctl_check_order(start_brk, <=, brk);
 	error |= __prctl_check_order(arg_start, <=, arg_end);
 	error |= __prctl_check_order(env_start, <=, env_end);
@@ -2569,16 +2595,6 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		break;
 	case PR_SET_VMA:
 		error = prctl_set_vma(arg2, arg3, arg4, arg5);
-		break;
-	case PR_SET_TAGGED_ADDR_CTRL:
-		if (arg3 || arg4 || arg5)
-			return -EINVAL;
-		error = SET_TAGGED_ADDR_CTRL(arg2);
-		break;
-	case PR_GET_TAGGED_ADDR_CTRL:
-		if (arg2 || arg3 || arg4 || arg5)
-			return -EINVAL;
-		error = GET_TAGGED_ADDR_CTRL();
 		break;
 	default:
 		error = -EINVAL;

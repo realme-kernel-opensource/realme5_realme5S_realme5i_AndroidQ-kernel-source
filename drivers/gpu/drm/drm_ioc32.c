@@ -372,10 +372,7 @@ static int copy_one_buf32(void *data, int count, struct drm_buf_entry *from)
 			      .size = from->buf_size,
 			      .low_mark = from->low_mark,
 			      .high_mark = from->high_mark};
-
-	if (copy_to_user(to + count, &v, offsetof(drm_buf_desc32_t, flags)))
-		return -EFAULT;
-	return 0;
+	return copy_to_user(to + count, &v, offsetof(drm_buf_desc32_t, flags));
 }
 
 static int drm_legacy_infobufs32(struct drm_device *dev, void *data,

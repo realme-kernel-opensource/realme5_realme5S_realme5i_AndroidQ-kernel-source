@@ -1,0 +1,63 @@
+/**********************************************************************************
+* Copyright (c)  2008-2019  Guangdong OPPO Mobile Comm Corp., Ltd
+* VENDOR_EDIT
+* Description: OPPO Charge Module Device Tree
+*
+* Version: 1.0
+* Date: 2019-06-10
+* Author: Yichun.Chen
+*
+* ------------------------------ Revision History: --------------------------------
+* <version>           <date>                <author>                            <desc>
+* Revision 1.0       2019-06-10            Yichun.Chen             Created for new architecture
+***********************************************************************************/
+&qupv3_se7_i2c {
+	stm8s_fastcg@26 {
+		status = "disabled";
+	};
+};
+
+&pm6125_gpios {
+
+	dischg_enable_T1: dischg_enable_T1 {
+		pins = "gpio6";
+		function = "normal";
+		power-source = <0>;
+		output-high;
+		input-disable;
+		qcom,drive-strength = <2>;
+	};
+
+	dischg_disable_T1: dischg_disable_T1 {
+		pins = "gpio6";
+		function = "normal";
+		power-source = <0>;
+		output-low;
+		input-disable;
+		qcom,drive-strength = <2>;
+	};
+};
+
+&pmi632_charger {
+
+	/delete-property/ qcom,vooc_project;
+
+	/* gpio options */
+	/delete-property/ qcom,chargerid_switch-gpio;
+	qcom,charger_hv_thr = <9500>;
+	qcom,charger_recv_thr = <9500>;
+	qcom,dischg-gpio = <&pm6125_gpios 6 0x00>;
+	pinctrl-names = "ship_active", "ship_sleep",
+			"dischg_enable", "dischg_disable",
+			"default", "default";
+	pinctrl-0 = <&ship_active>;
+	pinctrl-1 = <&ship_sleep>;
+	pinctrl-2 = <&dischg_enable_T1>;
+	pinctrl-3 = <&dischg_disable_T1>;
+	pinctrl-4 = <&gpio1_adc_default>;
+	pinctrl-5 = <&gpio4_adc_default>;
+};
+
+&pmi632_qg {
+	status="disabled";
+};

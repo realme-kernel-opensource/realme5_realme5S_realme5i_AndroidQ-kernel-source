@@ -50,6 +50,11 @@
 
 extern struct bug_entry __start___bug_table[], __stop___bug_table[];
 
+#ifdef VENDOR_EDIT
+#ifdef CONFIG_QIHOO
+extern struct bug_entry *patch_find_bug(unsigned long bugaddr);
+#endif
+#endif /* VENDOR_EDIT */
 static inline unsigned long bug_addr(const struct bug_entry *bug)
 {
 #ifndef CONFIG_GENERIC_BUG_RELATIVE_POINTERS

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,6 +30,14 @@
 #define DEFAULT_PANEL_JITTER_DENOMINATOR	1
 #define DEFAULT_PANEL_JITTER_ARRAY_SIZE		2
 #define DEFAULT_PANEL_PREFILL_LINES	25
+
+#ifdef VENDOR_EDIT
+int lcd_running_tag = -1;
+
+int get_lcd_status(){
+	return lcd_running_tag;
+}
+#endif
 
 static struct dsi_display_mode_priv_info default_priv_info = {
 	.panel_jitter_numer = DEFAULT_PANEL_JITTER_NUMERATOR,
@@ -201,7 +209,11 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
-	SDE_ATRACE_BEGIN("dsi_display_prepare");
+	#ifdef VENDOR_EDIT
+	lcd_running_tag = 1;
+	#endif
+
+	SDE_ATRACE_BEGIN("dsi_bridge_pre_enable");
 	rc = dsi_display_prepare(c_bridge->display);
 	if (rc) {
 		pr_err("[%d] DSI display prepare failed, rc=%d\n",
@@ -256,6 +268,9 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 			sde_connector_schedule_status_work(display->drm_conn,
 				true);
 	}
+	#ifdef VENDOR_EDIT
+	lcd_running_tag = 0;
+	#endif
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
@@ -263,7 +278,6 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 	int rc = 0;
 	struct dsi_display *display;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
-	int private_flags;
 
 	if (!bridge) {
 		pr_err("Invalid params\n");
@@ -271,13 +285,17 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 	}
 	display = c_bridge->display;
 
-	private_flags =
-		bridge->encoder->crtc->state->adjusted_mode.private_flags;
-
 	if (display && display->drm_conn) {
-		display->poms_pending =
-			private_flags & MSM_MODE_FLAG_SEAMLESS_POMS;
-		sde_connector_helper_bridge_disable(display->drm_conn);
+		if (bridge->encoder->crtc->state->adjusted_mode.private_flags &
+			MSM_MODE_FLAG_SEAMLESS_POMS) {
+			display->poms_pending = true;
+			/* Disable ESD thread, during panel mode switch */
+			sde_connector_schedule_status_work(display->drm_conn,
+				false);
+		} else {
+			display->poms_pending = false;
+			sde_connector_helper_bridge_disable(display->drm_conn);
+		}
 	}
 
 	rc = dsi_display_pre_disable(c_bridge->display);
@@ -440,6 +458,21 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 			(!crtc_state->active_changed ||
 			 display->is_cont_splash_enabled))
 			dsi_mode.dsi_mode_flags |= DSI_MODE_FLAG_DMS;
+
+		#ifdef VENDOR_EDIT
+		if (display->is_cont_splash_enabled)
+			dsi_mode.dsi_mode_flags &= ~DSI_MODE_FLAG_DMS;
+
+		if (display->panel && display->panel->oppo_priv.is_aod_ramless) {
+			if (crtc_state->active_changed && (dsi_mode.dsi_mode_flags & DSI_MODE_FLAG_DYN_CLK)) {
+				pr_err("dyn clk changed when active_changed, WA to skip dyn clk change\n");
+				dsi_mode.dsi_mode_flags &= ~DSI_MODE_FLAG_DYN_CLK;
+			}
+
+		if (dsi_mode.dsi_mode_flags & DSI_MODE_FLAG_DMS)
+			dsi_mode.dsi_mode_flags |= DSI_MODE_FLAG_SEAMLESS;
+		}
+		#endif /* VENDOR_EDIT */
 
 		/* Reject seemless transition when active/connectors changed.*/
 		if ((crtc_state->active_changed ||

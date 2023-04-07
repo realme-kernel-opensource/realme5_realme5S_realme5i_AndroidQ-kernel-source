@@ -18,6 +18,7 @@
 #include "msm_cci.h"
 #include "msm_eeprom.h"
 
+
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
@@ -26,12 +27,48 @@ DEFINE_MSM_MUTEX(msm_eeprom_mutex);
 static struct v4l2_file_operations msm_eeprom_v4l2_subdev_fops;
 #endif
 
-/*
- * msm_get_read_mem_size - Get the total size for allocation
- * @eeprom_map_array:	mem map
- *
- * Returns size after computation size, returns error in case of error
- */
+#ifdef VENDOR_EDIT
+/*oppo hongbo.dai 20170418 add for alps VCM info*/
+struct vcm_id_info eeprom_alps_info[] = {
+	{0x58, 0x01, "ALPS-961B"},
+};
+/*oppo hongbo.dai 20170801 add for lens id info*/
+struct lens_id_info eeprom_lens_info[] = {
+	{0x5b, 0x01, "Lens-Sunny3952A"},
+	{0x5d, 0x02, "Lens-Sunny3962"},
+	{0x64, 0x03, "Lens-Largan60027A"},
+	{0x6d, 0x04, "Lens-Largan50195"},
+};
+/*oppo hongbo.dai 20170901 add for sensor info*/
+struct sensor_string_info eeprom_sensor_info[] = {
+	{0x17, "imx258"},
+	{0x18, "imx298"},
+	{0x1a, "imx398"},
+	{0x36, "s5k3l8"},
+	{0x1b, "imx371"},
+	{0x1c, "imx350"},
+	{0x1b, "imx376"},
+	{0x1e, "imx376k"},
+	{0x37, "s5k3p3"},
+	{0x38, "s5k3p3sp"},
+	{0x3d, "s5k2p7sq"},
+	{0x3a, "s5k3p8"},
+	{0x3b, "s5k3p8sp"},
+	{0x3c, "s5k2t7sp"},
+	{0x3e, "s5k2t7sx"},
+	{0x3f, "s5k2t7sm"},
+	{0x28, "ov13855_f13v08b"},
+	{0x29, "ov20880"},
+};
+
+#endif
+
+/**
+  * msm_get_read_mem_size - Get the total size for allocation
+  * @eeprom_map_array:	mem map
+  *
+  * Returns size after computation size, returns error in case of error
+  */
 static int msm_get_read_mem_size
 	(struct msm_eeprom_memory_map_array *eeprom_map_array)
 {
@@ -55,8 +92,8 @@ static int msm_get_read_mem_size
 			return -EINVAL;
 		}
 		for (i = 0; i < eeprom_map->memory_map_size; i++) {
-			if (eeprom_map->mem_settings[i].i2c_operation ==
-				MSM_CAM_READ) {
+			if (eeprom_map->mem_settings[i].i2c_operation == MSM_CAM_READ ||
+				eeprom_map->mem_settings[i].i2c_operation == MSM_CAM_CONTINUOUS_READ) {
 				size += eeprom_map->mem_settings[i].reg_data;
 			}
 		}
@@ -326,8 +363,9 @@ ERROR:
 static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 	struct msm_eeprom_memory_map_array *eeprom_map_array)
 {
-	int rc =  0, i, j;
+	int rc =  0, i, j, k;
 	uint8_t *memptr;
+	uint8_t value = 0;
 	struct msm_eeprom_mem_map_t *eeprom_map;
 
 	e_ctrl->cal_data.mapdata = NULL;
@@ -406,6 +444,32 @@ static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 					goto clean_up;
 				}
 				memptr += eeprom_map->mem_settings[i].reg_data;
+			}
+			break;
+			case MSM_CAM_CONTINUOUS_READ: {
+				CDBG("%s: continuous read %d from 0x%x of type %d\n",
+				__func__,eeprom_map->mem_settings[i].reg_data,
+				eeprom_map->mem_settings[i].reg_addr,
+				eeprom_map->mem_settings[i].data_type);
+				e_ctrl->i2c_client.addr_type =
+					eeprom_map->mem_settings[i].addr_type;
+				for (k = 0; k < eeprom_map->mem_settings[i].reg_data; k++) {
+					rc = e_ctrl->i2c_client
+						.i2c_func_tbl->i2c_read_seq(&(
+						e_ctrl->i2c_client),
+						eeprom_map->mem_settings[i].reg_addr,
+						&value,
+						eeprom_map->mem_settings[i].data_type);
+					msleep(eeprom_map->mem_settings[i].delay);
+					if (rc < 0) {
+						pr_err("%s: read failed\n",
+							__func__);
+						goto clean_up;
+
+					}
+                    			*memptr = value;
+					memptr++;
+				}
 			}
 			break;
 			default:
@@ -617,6 +681,127 @@ static int eeprom_config_read_cal_data(struct msm_eeprom_ctrl_t *e_ctrl,
 	return rc;
 }
 
+#ifdef VENDOR_EDIT
+static int eeprom_write_data(struct msm_eeprom_ctrl_t *e_ctrl,
+	void *argp)
+{
+	int rc =  0;
+	//struct msm_camera_power_ctrl_t *power_info = NULL;
+	uint32_t i = 0 ;
+	int idx = 0;
+	int idy = 0;
+	int j = 0;
+	uint16_t readcalibData;
+	//uint32_t WRPaddr = CAM_EEPROM_WRPADDR;
+	//struct cam_write_eeprom_t cam_write_eeprom;
+	struct msm_camera_i2c_reg_setting  i2c_reg_settings;
+	struct msm_camera_i2c_reg_array    i2c_reg_arrays[8];
+	struct msm_camera_i2c_reg_array    i2c_reg_array;
+    struct cam_write_eeprom_t *m_cam_write_eeprom = argp;
+	CDBG("write start, cam: ID: %x, slaveID:0x%0x reg_addr: %x, size: %x",
+		m_cam_write_eeprom->cam_id,
+		e_ctrl->i2c_client.cci_client->sid,
+		m_cam_write_eeprom->baseAddr,
+		m_cam_write_eeprom->calibDataSize);
+
+	//disable write protection for imx586
+	if (m_cam_write_eeprom->isWRP == 0x01) {
+		i2c_reg_settings.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+		i2c_reg_settings.data_type = MSM_CAMERA_I2C_BYTE_DATA;
+		i2c_reg_settings.size = 1;
+		i2c_reg_settings.delay = WRITE_DATA_DELAY;
+		i2c_reg_array.reg_addr = m_cam_write_eeprom->WRPaddr;
+		i2c_reg_array.reg_data = 0x00;
+		i2c_reg_array.delay = 0;
+
+		i2c_reg_settings.reg_setting = &i2c_reg_array;
+
+		rc = e_ctrl->i2c_client
+			.i2c_func_tbl->i2c_read(&(e_ctrl->i2c_client),
+			 i2c_reg_array.reg_addr, &readcalibData,
+			 MSM_CAMERA_I2C_BYTE_DATA);
+		if (rc) {
+			pr_err("read WRPaddr failed rc %d  line:%d \n",rc, __LINE__);
+			return rc;
+		}
+
+		if (readcalibData != 0x00) {
+			rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+				&(e_ctrl->i2c_client),
+				i2c_reg_array.reg_addr,
+				i2c_reg_array.reg_data,
+				i2c_reg_settings.data_type);
+
+			if (rc) {
+				pr_err("write WRPaddr failed rc %d  line:%d \n",rc,  __LINE__);
+				return rc;
+			}
+			CDBG("write!cam: WRPaddr: 0x%x data:0x%0x", i2c_reg_array.reg_addr, i2c_reg_array.reg_data);
+		}
+	}
+	//wait for 100ms, and then write eeprom
+	msleep(100);
+	//start
+	if (((m_cam_write_eeprom->cam_id == 0x01) || (m_cam_write_eeprom->cam_id == 0x10))
+			&& m_cam_write_eeprom->calibDataSize == CALIB_DATA_LENGTH) {
+		idx = m_cam_write_eeprom->calibDataSize / WRITE_DATA_MAX_LENGTH;
+		idy = m_cam_write_eeprom->calibDataSize % WRITE_DATA_MAX_LENGTH;
+		for (i = 0; i < idx; i++) {
+			i2c_reg_settings.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+			i2c_reg_settings.data_type = MSM_CAMERA_I2C_BYTE_DATA;
+			i2c_reg_settings.size = WRITE_DATA_MAX_LENGTH;
+			i2c_reg_settings.delay = m_cam_write_eeprom->mdelay;
+			for (j = 0; j < WRITE_DATA_MAX_LENGTH; j++) {
+				i2c_reg_arrays[j].reg_addr = m_cam_write_eeprom->baseAddr + i*WRITE_DATA_MAX_LENGTH+j;
+				i2c_reg_arrays[j].reg_data = m_cam_write_eeprom->calibData[i*WRITE_DATA_MAX_LENGTH+j];
+				i2c_reg_arrays[j].delay = 0;
+
+			}
+			i2c_reg_settings.reg_setting = i2c_reg_arrays;
+			rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_write_table(
+				&(e_ctrl->i2c_client), &i2c_reg_settings);
+			if (rc) {
+				pr_err("eeprom write failed rc %d  line:%d \n",rc,  __LINE__);
+				return rc;
+			}
+		}
+		i2c_reg_settings.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+		i2c_reg_settings.data_type = MSM_CAMERA_I2C_BYTE_DATA;
+		i2c_reg_settings.size = 1;
+		i2c_reg_settings.delay = WRITE_DATA_DELAY;
+		i2c_reg_array.reg_addr = m_cam_write_eeprom->baseAddr + i*WRITE_DATA_MAX_LENGTH;
+		i2c_reg_array.reg_data = m_cam_write_eeprom->calibData[i*WRITE_DATA_MAX_LENGTH];
+		i2c_reg_array.delay = 0;
+		i2c_reg_settings.reg_setting = &i2c_reg_array;
+
+		rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_write_table(
+			&(e_ctrl->i2c_client), &i2c_reg_settings);
+		if (rc < 0)
+			pr_err("Write array failed prior to probe\n");
+
+	} else {
+		pr_err("eeprom write failed ");
+	}
+	//enable write protection for imx586
+	if (m_cam_write_eeprom->isWRP == 0x01) {
+		i2c_reg_settings.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+		i2c_reg_settings.data_type = MSM_CAMERA_I2C_BYTE_DATA;
+		i2c_reg_settings.size = 1;
+		i2c_reg_settings.delay = WRITE_DATA_DELAY;
+		i2c_reg_array.reg_addr = m_cam_write_eeprom->WRPaddr;
+		i2c_reg_array.reg_data = 0x0E;
+		i2c_reg_array.delay = 0;
+		i2c_reg_settings.reg_setting = &i2c_reg_array;
+		rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_write_table(
+			&(e_ctrl->i2c_client), &i2c_reg_settings);
+		if (rc < 0)
+			pr_err("Write array failed prior to probe rc %d  line:%d \n", rc,  __LINE__);
+	}
+
+	return rc;
+}
+#endif
+
 static int msm_eeprom_config(struct msm_eeprom_ctrl_t *e_ctrl,
 	void *argp)
 {
@@ -715,6 +900,11 @@ static long msm_eeprom_subdev_ioctl(struct v4l2_subdev *sd,
 		return msm_eeprom_get_subdev_id(e_ctrl, argp);
 	case VIDIOC_MSM_EEPROM_CFG:
 		return msm_eeprom_config(e_ctrl, argp);
+	#ifdef VENDOR_EDIT
+	case VIDIOC_MSM_EEPROM_WRITE_CALIB:
+		return eeprom_write_data(e_ctrl, argp);
+	#endif
+
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -1670,6 +1860,10 @@ static long msm_eeprom_subdev_ioctl32(struct v4l2_subdev *sd,
 		return msm_eeprom_get_subdev_id(e_ctrl, argp);
 	case VIDIOC_MSM_EEPROM_CFG32:
 		return msm_eeprom_config32(e_ctrl, argp);
+	#ifdef VENDOR_EDIT
+	case VIDIOC_MSM_EEPROM_WRITE_CALIB:
+		return eeprom_write_data(e_ctrl, argp);
+	#endif
 	default:
 		return -ENOIOCTLCMD;
 	}

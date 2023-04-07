@@ -1,12 +1,10 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
-/* Atlantic Network Driver
+/*
+ * aQuantia Corporation Network Driver
+ * Copyright (C) 2019 aQuantia Corporation. All rights reserved
  *
- * Copyright (C) 2019 aQuantia Corporation
- * Copyright (C) 2019-2020 Marvell International Ltd.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  */
 
 #ifndef _ATL_RING_DESC_H_
@@ -41,7 +39,7 @@ struct atl_desc_ring {
 	struct atl_queue_vec *qvec;
 	struct u64_stats_sync syncp;
 	struct atl_ring_stats stats;
-#if IS_ENABLED(CONFIG_ATLFWD_FWD_NETLINK)
+#ifdef CONFIG_ATLFWD_FWD_NETLINK
 	u32 tx_hw_head;
 	union {
 		struct atl_fwd_event *tx_evt;

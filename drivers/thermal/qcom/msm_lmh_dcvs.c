@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -42,16 +42,9 @@
 #include <trace/events/lmh.h>
 
 #define LIMITS_DCVSH			0x10
-#define LIMITS_PROFILE_CHANGE		0x01
 #define LIMITS_NODE_DCVS		0x44435653
 
 #define LIMITS_SUB_FN_THERMAL		0x54484D4C
-#define LIMITS_SUB_FN_CRNT		0x43524E54
-#define LIMITS_SUB_FN_REL		0x52454C00
-#define LIMITS_SUB_FN_BCL		0x42434C00
-
-#define LIMITS_ALGO_MODE_ENABLE		0x454E424C
-
 #define LIMITS_HI_THRESHOLD		0x48494748
 #define LIMITS_LOW_THRESHOLD		0x4C4F5700
 #define LIMITS_ARM_THRESHOLD		0x41524D00
@@ -94,7 +87,7 @@ struct limits_dcvs_hw {
 	int irq_num;
 	void *osm_hw_reg;
 	void *int_clr_reg;
-	void __iomem *min_freq_reg;
+	void *min_freq_reg;
 	cpumask_t core_map;
 	cpumask_t online_mask;
 	struct delayed_work freq_poll_work;
@@ -110,6 +103,10 @@ struct limits_dcvs_hw {
 	uint32_t cdev_registered;
 	struct regulator *isens_reg[2];
 	struct work_struct cdev_register_work;
+#ifdef VENDOR_EDIT
+	uint32_t dump_thres;
+	uint32_t dump_cnt;
+#endif
 };
 
 LIST_HEAD(lmh_dcvs_hw_list);
@@ -139,6 +136,29 @@ static void limits_dcvs_get_freq_limits(struct limits_dcvs_hw *hw)
 		idx++;
 	}
 }
+
+#ifdef VENDOR_EDIT
+static void lmh_dump_tz_temp(struct limits_dcvs_hw *hw)
+{
+	struct thermal_cooling_device *cdev;
+	int cpu, idx = 0;
+	struct thermal_instance *instance;
+
+	if (NULL == hw) {
+		pr_err("lmh device is invalid!\n");
+		return;
+	}
+
+	for_each_cpu(cpu, &hw->core_map) {
+		cdev = hw->cdev_data[idx].cdev;
+		list_for_each_entry(instance, &cdev->thermal_instances, cdev_node) {
+			pr_info("cdev%d: zone%d->temp=%d, type=%s\n", idx, instance->tz->id,
+				instance->tz->temperature, instance->tz->type);
+		}
+		idx++;
+	}
+}
+#endif
 
 static unsigned long limits_mitigation_notify(struct limits_dcvs_hw *hw)
 {
@@ -192,6 +212,17 @@ static unsigned long limits_mitigation_notify(struct limits_dcvs_hw *hw)
 	sched_update_cpu_freq_min_max(&hw->core_map, 0, max_limit);
 	pr_debug("CPU:%d max limit:%lu\n", cpumask_first(&hw->core_map),
 			max_limit);
+#ifdef VENDOR_EDIT
+	if (max_limit < hw->dump_thres) {
+		pr_info("CPU:%d max limit:%lu\n", cpumask_first(&hw->core_map),
+			max_limit);
+		hw->dump_cnt++;
+		if (!(hw->dump_cnt % 100)) {
+			lmh_dump_tz_temp(hw);
+			hw->dump_cnt = 0;
+		}
+	}
+#endif
 	trace_lmh_dcvs_freq(cpumask_first(&hw->core_map), max_limit);
 
 notify_exit:
@@ -352,23 +383,6 @@ static struct limits_dcvs_hw *get_dcvsh_hw_from_cpu(int cpu)
 	return NULL;
 }
 
-static int enable_lmh(void)
-{
-	int ret = 0;
-	struct scm_desc desc_arg;
-
-	desc_arg.args[0] = 1;
-	desc_arg.arginfo = SCM_ARGS(1, SCM_VAL);
-	ret = scm_call2(SCM_SIP_FNID(SCM_SVC_LMH, LIMITS_PROFILE_CHANGE),
-			&desc_arg);
-	if (ret) {
-		pr_err("Error switching profile:[1]. err:%d\n", ret);
-		return ret;
-	}
-
-	return ret;
-}
-
 static int lmh_set_max_limit(int cpu, u32 freq)
 {
 	struct limits_dcvs_hw *hw = get_dcvsh_hw_from_cpu(cpu);
@@ -395,6 +409,10 @@ static int lmh_set_max_limit(int cpu, u32 freq)
 	ret = limits_dcvs_write(hw->affinity, LIMITS_SUB_FN_THERMAL,
 				  LIMITS_FREQ_CAP, max_freq,
 				  (max_freq == U32_MAX) ? 0 : 1, 1);
+#ifdef VENDOR_EDIT
+	pr_info("affinity:%x, max_freq:%u, ret:%d\n", hw->affinity,
+			max_freq, ret);
+#endif
 	lmh_dcvs_notify(hw);
 	mutex_unlock(&hw->access_lock);
 
@@ -579,6 +597,9 @@ static int limits_dcvs_probe(struct platform_device *pdev)
 	struct device_node *dn = pdev->dev.of_node;
 	struct device_node *cpu_node, *lmh_node;
 	uint32_t request_reg, clear_reg, min_reg;
+#ifdef VENDOR_EDIT
+	uint32_t dump_thres;
+#endif
 	int cpu, idx = 0;
 	cpumask_t mask = { CPU_BITS_NONE };
 	const __be32 *addr;
@@ -641,45 +662,6 @@ static int limits_dcvs_probe(struct platform_device *pdev)
 	hw->is_plat_mit_disabled = of_property_read_bool(dn,
 				"qcom,plat-mitigation-disable");
 
-	/* Check legcay LMH HW enablement is needed or not */
-	if (of_property_read_bool(dn, "qcom,legacy-lmh-enable")) {
-		/* Enable the thermal algorithm early */
-		ret = limits_dcvs_write(hw->affinity, LIMITS_SUB_FN_THERMAL,
-			 LIMITS_ALGO_MODE_ENABLE, 1, 0, 0);
-		if (ret) {
-			pr_err("Unable to enable THERM algo for cluster%d\n",
-				affinity);
-			return ret;
-		}
-		/* Enable the LMH outer loop algorithm */
-		ret = limits_dcvs_write(hw->affinity, LIMITS_SUB_FN_CRNT,
-			 LIMITS_ALGO_MODE_ENABLE, 1, 0, 0);
-		if (ret) {
-			pr_err("Unable to enable CRNT algo for cluster%d\n",
-				affinity);
-			return ret;
-		}
-		/* Enable the Reliability algorithm */
-		ret = limits_dcvs_write(hw->affinity, LIMITS_SUB_FN_REL,
-			 LIMITS_ALGO_MODE_ENABLE, 1, 0, 0);
-		if (ret) {
-			pr_err("Unable to enable REL algo for cluster%d\n",
-				affinity);
-			return ret;
-		}
-		/* Enable the BCL algorithm */
-		ret = limits_dcvs_write(hw->affinity, LIMITS_SUB_FN_BCL,
-			 LIMITS_ALGO_MODE_ENABLE, 1, 0, 0);
-		if (ret) {
-			pr_err("Unable to enable BCL algo for cluster%d\n",
-				affinity);
-			return ret;
-		}
-		ret = enable_lmh();
-		if (ret)
-			return ret;
-	}
-
 	addr = of_get_address(dn, 0, NULL, NULL);
 	if (!addr) {
 		pr_err("Property llm-base-addr not found\n");
@@ -717,13 +699,11 @@ static int limits_dcvs_probe(struct platform_device *pdev)
 			return PTR_ERR(tzdev);
 	}
 
-	if (!hw->is_plat_mit_disabled) {
-		hw->min_freq_reg = devm_ioremap(&pdev->dev, min_reg, 0x4);
-		if (!hw->min_freq_reg) {
-			pr_err("min frequency enable register remap failed\n");
-			ret = -ENOMEM;
-			goto unregister_sensor;
-		}
+	hw->min_freq_reg = devm_ioremap(&pdev->dev, min_reg, 0x4);
+	if (!hw->min_freq_reg) {
+		pr_err("min frequency enable register remap failed\n");
+		ret = -ENOMEM;
+		goto unregister_sensor;
 	}
 
 	mutex_init(&hw->access_lock);
@@ -758,6 +738,18 @@ static int limits_dcvs_probe(struct platform_device *pdev)
 	hw->lmh_freq_attr.attr.name = "lmh_freq_limit";
 	hw->lmh_freq_attr.show = lmh_freq_limit_show;
 	hw->lmh_freq_attr.attr.mode = 0444;
+
+#ifdef VENDOR_EDIT
+	ret = of_property_read_u32(dn, "dump_thres", &dump_thres);
+	if (ret) {
+		pr_err("lmh%d: dump_thres=%u. Doesn't support dump!\n",
+			affinity, hw->dump_thres);
+	} else {
+		pr_info("lmh%d: dump_thres=%u\n", affinity, dump_thres);
+		hw->dump_thres = dump_thres;
+	}
+#endif
+
 	device_create_file(&pdev->dev, &hw->lmh_freq_attr);
 
 probe_exit:

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +23,6 @@
 #include <linux/of_platform.h>
 #include <linux/poll.h>
 #include <linux/regulator/consumer.h>
-#include <linux/sizes.h>
 #include <linux/thermal.h>
 #include <linux/soc/qcom/llcc-qcom.h>
 #include <linux/soc/qcom/cdsprm_cxlimit.h>
@@ -38,8 +37,8 @@
  */
 #define CLASS_NAME              "npu"
 #define DRIVER_NAME             "msm_npu"
-#define DDR_MAPPED_START_ADDR   0x00000000
-#define DDR_MAPPED_SIZE         (SZ_1G * 4ULL)
+#define DDR_MAPPED_START_ADDR   0x80000000
+#define DDR_MAPPED_SIZE         0x60000000
 
 #define MBOX_OP_TIMEOUTMS 1000
 
@@ -632,18 +631,17 @@ int npu_enable_core_power(struct npu_device *npu_dev)
 	if (!pwr->pwr_vote_num) {
 		ret = npu_enable_regulators(npu_dev);
 		if (ret)
-			goto fail;
+			return ret;
 
 		ret = npu_enable_core_clocks(npu_dev);
 		if (ret) {
 			npu_disable_regulators(npu_dev);
 			pwr->pwr_vote_num = 0;
-			goto fail;
+			return ret;
 		}
 		npu_resume_devbw(npu_dev);
 	}
 	pwr->pwr_vote_num++;
-fail:
 	mutex_unlock(&npu_dev->dev_lock);
 
 	return ret;
@@ -1180,14 +1178,10 @@ int npu_enable_sys_cache(struct npu_device *npu_dev)
 
 		pr_debug("prior to activate sys cache\n");
 		rc = llcc_slice_activate(npu_dev->sys_cache);
-		if (rc) {
-			pr_warn("failed to activate sys cache\n");
-			llcc_slice_putd(npu_dev->sys_cache);
-			npu_dev->sys_cache = NULL;
-			return 0;
-		}
-
-		pr_debug("sys cache activated\n");
+		if (rc)
+			pr_err("failed to activate sys cache\n");
+		else
+			pr_debug("sys cache activated\n");
 	}
 
 	return rc;
@@ -2156,7 +2150,6 @@ static int npu_probe(struct platform_device *pdev)
 		return -EFAULT;
 
 	npu_dev->pdev = pdev;
-	mutex_init(&npu_dev->dev_lock);
 
 	platform_set_drvdata(pdev, npu_dev);
 	res = platform_get_resource_byname(pdev,
@@ -2314,7 +2307,9 @@ static int npu_probe(struct platform_device *pdev)
 	if (rc)
 		goto error_driver_init;
 
-	npu_debugfs_init(npu_dev);
+	rc = npu_debugfs_init(npu_dev);
+	if (rc)
+		goto error_driver_init;
 
 	npu_dev->smmu_ctx.attach_cnt = 0;
 	npu_dev->smmu_ctx.mmu_mapping = arm_iommu_create_mapping(
@@ -2332,6 +2327,8 @@ static int npu_probe(struct platform_device *pdev)
 		pr_err("arm_iommu_attach_device failed\n");
 		goto error_driver_init;
 	}
+
+	mutex_init(&npu_dev->dev_lock);
 
 	rc = npu_host_init(npu_dev);
 	if (rc) {

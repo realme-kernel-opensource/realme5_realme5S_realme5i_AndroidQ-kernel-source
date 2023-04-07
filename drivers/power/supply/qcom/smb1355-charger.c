@@ -381,7 +381,13 @@ static int smb1355_set_charge_param(struct smb1355 *chip,
 			param->name, val_u, param->min_u, param->max_u);
 		return -EINVAL;
 	}
-
+#ifdef VENDOR_EDIT
+	else
+	{
+		pr_info("%s: %d is in range [%d, %d]\n",
+		param->name, val_u, param->min_u, param->max_u);
+	}
+#endif
 	val_raw = (val_u - param->min_u) / param->step_u;
 
 	rc = smb1355_write(chip, param->reg, val_raw);

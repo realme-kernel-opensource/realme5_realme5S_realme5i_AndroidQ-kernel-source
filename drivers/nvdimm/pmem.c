@@ -170,7 +170,6 @@ static blk_status_t pmem_do_bvec(struct pmem_device *pmem, struct page *page,
 
 static blk_qc_t pmem_make_request(struct request_queue *q, struct bio *bio)
 {
-	int ret = 0;
 	blk_status_t rc = 0;
 	bool do_acct;
 	unsigned long start;
@@ -180,7 +179,7 @@ static blk_qc_t pmem_make_request(struct request_queue *q, struct bio *bio)
 	struct nd_region *nd_region = to_region(pmem);
 
 	if (bio->bi_opf & REQ_FLUSH)
-		ret = nvdimm_flush(nd_region, bio);
+		nvdimm_flush(nd_region);
 
 	do_acct = nd_iostat_start(bio, &start);
 	bio_for_each_segment(bvec, bio, iter) {
@@ -196,10 +195,7 @@ static blk_qc_t pmem_make_request(struct request_queue *q, struct bio *bio)
 		nd_iostat_end(bio, start);
 
 	if (bio->bi_opf & REQ_FUA)
-		ret = nvdimm_flush(nd_region, bio);
-
-	if (ret)
-		bio->bi_status = errno_to_blk_status(ret);
+		nvdimm_flush(nd_region);
 
 	bio_endio(bio);
 	return BLK_QC_T_NONE;
@@ -261,16 +257,10 @@ static long pmem_dax_direct_access(struct dax_device *dax_dev,
 	return __pmem_direct_access(pmem, pgoff, nr_pages, kaddr, pfn);
 }
 
-/*
- * Use the 'no check' versions of copy_from_iter_flushcache() and
- * copy_to_iter_mcsafe() to bypass HARDENED_USERCOPY overhead. Bounds
- * checking, both file offset and device offset, is handled by
- * dax_iomap_actor()
- */
 static size_t pmem_copy_from_iter(struct dax_device *dax_dev, pgoff_t pgoff,
 		void *addr, size_t bytes, struct iov_iter *i)
 {
-	return _copy_from_iter_flushcache(addr, bytes, i);
+	return copy_from_iter_flushcache(addr, bytes, i);
 }
 
 static const struct dax_operations pmem_dax_ops = {
@@ -421,6 +411,7 @@ static int pmem_attach_disk(struct device *dev,
 	}
 	dax_write_cache(dax_dev, wbc);
 	pmem->dax_dev = dax_dev;
+
 	gendev = disk_to_dev(disk);
 	gendev->groups = pmem_attribute_groups;
 
@@ -478,14 +469,14 @@ static int nd_pmem_remove(struct device *dev)
 		sysfs_put(pmem->bb_state);
 		pmem->bb_state = NULL;
 	}
-	nvdimm_flush(to_nd_region(dev->parent), NULL);
+	nvdimm_flush(to_nd_region(dev->parent));
 
 	return 0;
 }
 
 static void nd_pmem_shutdown(struct device *dev)
 {
-	nvdimm_flush(to_nd_region(dev->parent), NULL);
+	nvdimm_flush(to_nd_region(dev->parent));
 }
 
 static void nd_pmem_notify(struct device *dev, enum nvdimm_event event)

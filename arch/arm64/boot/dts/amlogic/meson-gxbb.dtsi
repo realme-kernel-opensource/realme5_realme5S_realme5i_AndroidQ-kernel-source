@@ -413,7 +413,7 @@
 			};
 		};
 
-		spi_pins: spi-pins {
+		spi_pins: spi {
 			mux {
 				groups = "spi_miso",
 					"spi_mosi",

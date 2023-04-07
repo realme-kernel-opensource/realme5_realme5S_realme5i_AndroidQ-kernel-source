@@ -1,0 +1,6 @@
+#change 'y' to 'n', if you want fo close phoenix feature
+config OPPO_PHOENIX
+    bool "oppo phoenix project"
+    default y
+    help
+      define this config to init oppo phoenix project.

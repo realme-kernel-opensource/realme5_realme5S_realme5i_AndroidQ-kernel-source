@@ -30,7 +30,14 @@
 
 #include "pnode.h"
 #include "internal.h"
-
+#ifdef VENDOR_EDIT
+#include <soc/oppo/boot_mode.h>
+#ifdef OPPO_DISALLOW_KEY_INTERFACES
+#ifdef CONFIG_OPPO_KEVENT_UPLOAD
+#include <linux/oppo_kevent.h>
+#endif /* CONFIG_OPPO_KEVENT_UPLOAD */
+#endif /* OPPO_DISALLOW_KEY_INTERFACES */
+#endif /* VENDOR_EDIT*/
 /* Maximum number of mounts in a mount namespace */
 unsigned int sysctl_mount_max __read_mostly = 100000;
 
@@ -1778,12 +1785,6 @@ SYSCALL_DEFINE2(umount, char __user *, name, int, flags)
 dput_and_out:
 	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
 	dput(path.dentry);
-	if (user_request && (!retval || (flags & MNT_FORCE))) {
-		/* filesystem needs to handle unclosed namespaces */
-		if (mnt->mnt.mnt_sb->s_op->umount_end)
-			mnt->mnt.mnt_sb->s_op->umount_end(mnt->mnt.mnt_sb,
-					flags);
-	}
 	mntput_no_expire(mnt);
 
 	if (!user_request)
@@ -1799,6 +1800,11 @@ dput_and_out:
 
 		/* flush delayed_mntput_work to put sb->s_active */
 		flush_delayed_mntput_wait();
+	}
+	if (!retval || (flags & MNT_FORCE)) {
+		/* filesystem needs to handle unclosed namespaces */
+		if (mnt->mnt.mnt_sb->s_op->umount_end)
+			mnt->mnt.mnt_sb->s_op->umount_end(mnt->mnt.mnt_sb, flags);
 	}
 out:
 	return retval;
@@ -2823,7 +2829,7 @@ void *copy_mount_options(const void __user * data)
 	 * the remainder of the page.
 	 */
 	/* copy_from_user cannot cross TASK_SIZE ! */
-	size = TASK_SIZE - (unsigned long)untagged_addr(data);
+	size = TASK_SIZE - (unsigned long)data;
 	if (size > PAGE_SIZE)
 		size = PAGE_SIZE;
 
@@ -2862,7 +2868,50 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 	struct path path;
 	unsigned int mnt_flags = 0, sb_flags;
 	int retval = 0;
+	
+#ifdef VENDOR_EDIT
+#ifdef OPPO_DISALLOW_KEY_INTERFACES
+#ifdef CONFIG_OPPO_KEVENT_UPLOAD
+	struct kernel_packet_info* dcs_event;
+	char dcs_stack[sizeof(struct kernel_packet_info) + 256];
+	const char* dcs_event_tag = "kernel_event";
+	const char* dcs_event_id = "mount_report";
+	char* dcs_event_payload = NULL;
+#endif /* CONFIG_OPPO_KEVENT_UPLOAD */
+#endif /* OPPO_DISALLOW_KEY_INTERFACES */
+#endif /* VENDOR_EDIT*/
 
+#if defined(VENDOR_EDIT) && defined(OPPO_DISALLOW_KEY_INTERFACES)
+ 	char dname[16] = {0};
+	if (dir_name != NULL && copy_from_user(dname,dir_name,8) == 0){
+		if ((!strncmp(dname, "/system", 8) || !strncmp(dname, "/vendor", 8))&& !(flags & MS_RDONLY)
+			&& (get_boot_mode() == MSM_BOOT_MODE__NORMAL)) {
+			printk(KERN_ERR "[OPPO]System partition is not permitted to be mounted as readwrite\n");
+#ifdef CONFIG_OPPO_KEVENT_UPLOAD
+		printk(KERN_ERR "do_mount:kevent_send_to_user\n");
+
+		dcs_event = (struct kernel_packet_info*)dcs_stack;
+		dcs_event_payload = dcs_stack +
+		sizeof(struct kernel_packet_info);
+
+		dcs_event->type = 2;
+
+		strncpy(dcs_event->log_tag, dcs_event_tag,
+			sizeof(dcs_event->log_tag));
+		strncpy(dcs_event->event_id, dcs_event_id,
+			sizeof(dcs_event->event_id));
+
+		dcs_event->payload_length = snprintf(dcs_event_payload, 256, "partition@@system");
+		if (dcs_event->payload_length < 256) {
+			dcs_event->payload_length += 1;
+		}
+
+		kevent_send_to_user(dcs_event);
+#endif /* CONFIG_OPPO_KEVENT_UPLOAD */
+			return -EPERM;
+		}
+	}
+#endif /* VENDOR_EDIT */
 	/* Discard magic */
 	if ((flags & MS_MGC_MSK) == MS_MGC_VAL)
 		flags &= ~MS_MGC_MSK;
@@ -3275,8 +3324,8 @@ SYSCALL_DEFINE2(pivot_root, const char __user *, new_root,
 	/* make certain new is below the root */
 	if (!is_path_reachable(new_mnt, new.dentry, &root))
 		goto out4;
-	lock_mount_hash();
 	root_mp->m_count++; /* pin it so it won't go away */
+	lock_mount_hash();
 	detach_mnt(new_mnt, &parent_path);
 	detach_mnt(root_mnt, &root_parent);
 	if (root_mnt->mnt.mnt_flags & MNT_LOCKED) {

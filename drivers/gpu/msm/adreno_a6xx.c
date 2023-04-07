@@ -784,7 +784,7 @@ static void a6xx_start(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct gmu_dev_ops *gmu_dev_ops = GMU_DEVICE_OPS(device);
-	unsigned int bit, mal, mode, glbl_inv, channel;
+	unsigned int bit, mal, mode, glbl_inv;
 	unsigned int amsbc = 0;
 	static bool patch_reglist;
 
@@ -885,10 +885,6 @@ static void a6xx_start(struct adreno_device *adreno_dev)
 		"qcom,ubwc-mode", &mode))
 		mode = 0;
 
-	if (of_property_read_u32(device->pdev->dev.of_node,
-		"qcom,macrotiling-channels", &channel))
-		channel = 0; /* unknown and keep reset value */
-
 	switch (mode) {
 	case KGSL_UBWC_1_0:
 		mode = 1;
@@ -903,9 +899,6 @@ static void a6xx_start(struct adreno_device *adreno_dev)
 	default:
 		break;
 	}
-
-	if (channel == 8)
-		kgsl_regwrite(device, A6XX_RBBM_NC_MODE_CNTL, 1);
 
 	if (bit >= 13 && bit <= 16)
 		bit = (bit - 13) & 0x03;
@@ -1426,8 +1419,10 @@ static int a6xx_soft_reset(struct adreno_device *adreno_dev)
 	 * For the soft reset case with GMU enabled this part is done
 	 * by the GMU firmware
 	 */
-	if (gmu_core_gpmu_isenabled(device))
+	if (gmu_core_gpmu_isenabled(device) &&
+		!test_bit(ADRENO_DEVICE_HARD_RESET, &adreno_dev->priv))
 		return 0;
+
 
 	adreno_writereg(adreno_dev, ADRENO_REG_RBBM_SW_RESET_CMD, 1);
 	/*
@@ -1521,17 +1516,23 @@ static int a6xx_reset(struct kgsl_device *device, int fault)
 	/* Transition from ACTIVE to RESET state */
 	kgsl_pwrctrl_change_state(device, KGSL_STATE_RESET);
 
-	/* since device is officially off now clear start bit */
-	clear_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv);
+	if (ret) {
+		/* If soft reset failed/skipped, then pull the power */
+		set_bit(ADRENO_DEVICE_HARD_RESET, &adreno_dev->priv);
+		/* since device is officially off now clear start bit */
+		clear_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv);
 
-	/* Keep trying to start the device until it works */
-	for (i = 0; i < NUM_TIMES_RESET_RETRY; i++) {
-		ret = adreno_start(device, 0);
-		if (!ret)
-			break;
+		/* Keep trying to start the device until it works */
+		for (i = 0; i < NUM_TIMES_RESET_RETRY; i++) {
+			ret = adreno_start(device, 0);
+			if (!ret)
+				break;
 
-		msleep(20);
+			msleep(20);
+		}
 	}
+
+	clear_bit(ADRENO_DEVICE_HARD_RESET, &adreno_dev->priv);
 
 	if (ret)
 		return ret;
@@ -1762,29 +1763,6 @@ static void a6xx_cp_callback(struct adreno_device *adreno_dev, int bit)
 	adreno_dispatcher_schedule(device);
 }
 
-/*
- * a6xx_gpc_err_int_callback() - Isr for GPC error interrupts
- * @adreno_dev: Pointer to device
- * @bit: Interrupt bit
- */
-static void a6xx_gpc_err_int_callback(struct adreno_device *adreno_dev, int bit)
-{
-	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
-
-	/*
-	 * GPC error is typically the result of mistake SW programming.
-	 * Force GPU fault for this interrupt so that we can debug it
-	 * with help of register dump.
-	 */
-
-	KGSL_DRV_CRIT_RATELIMIT(device, "RBBM: GPC error\n");
-	adreno_irqctrl(adreno_dev, 0);
-
-	/* Trigger a fault in the dispatcher - this will effect a restart */
-	adreno_set_gpu_fault(adreno_dev, ADRENO_SOFT_FAULT);
-	adreno_dispatcher_schedule(device);
-}
-
 #define A6XX_INT_MASK \
 	((1 << A6XX_INT_CP_AHB_ERROR) |			\
 	 (1 << A6XX_INT_ATB_ASYNCFIFO_OVERFLOW) |	\
@@ -1810,7 +1788,7 @@ static struct adreno_irq_funcs a6xx_irq_funcs[32] = {
 	ADRENO_IRQ_CALLBACK(NULL), /* 5 - UNUSED */
 	/* 6 - RBBM_ATB_ASYNC_OVERFLOW */
 	ADRENO_IRQ_CALLBACK(a6xx_err_callback),
-	ADRENO_IRQ_CALLBACK(a6xx_gpc_err_int_callback), /* 7 - GPC_ERR */
+	ADRENO_IRQ_CALLBACK(NULL), /* 7 - GPC_ERR */
 	ADRENO_IRQ_CALLBACK(a6xx_preemption_callback),/* 8 - CP_SW */
 	ADRENO_IRQ_CALLBACK(a6xx_cp_hw_err_callback), /* 9 - CP_HW_ERROR */
 	ADRENO_IRQ_CALLBACK(NULL),  /* 10 - CP_CCU_FLUSH_DEPTH_TS */
@@ -2973,9 +2951,6 @@ static void a6xx_platform_setup(struct adreno_device *adreno_dev)
 	} else
 		gpudev->vbif_xin_halt_ctrl0_mask =
 				A6XX_VBIF_XIN_HALT_CTRL0_MASK;
-
-	if (ADRENO_FEATURE(adreno_dev, ADRENO_SPTP_PC))
-		set_bit(ADRENO_SPTP_PC_CTRL, &adreno_dev->pwrctrl_flag);
 
 	/* Check efuse bits for various capabilties */
 	a6xx_check_features(adreno_dev);

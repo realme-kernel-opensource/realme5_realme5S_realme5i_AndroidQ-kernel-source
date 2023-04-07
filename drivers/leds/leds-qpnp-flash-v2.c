@@ -317,6 +317,7 @@ struct qpnp_flash_led {
 	struct power_supply		*bms_psy;
 	struct power_supply		*main_psy;
 	struct power_supply		*usb_psy;
+	struct power_supply		*batt_psy;
 	struct notifier_block		nb;
 	spinlock_t			lock;
 	int				num_fnodes;
@@ -756,11 +757,8 @@ static int get_property_from_fg(struct qpnp_flash_led *led,
 	union power_supply_propval pval = {0, };
 
 	if (!led->bms_psy) {
-		led->bms_psy = power_supply_get_by_name("bms");
-		if (!led->bms_psy) {
-			pr_err_ratelimited("Couldn't get bms_psy\n");
-			return -ENODEV;
-		}
+		pr_err("no bms psy found\n");
+		return -EINVAL;
 	}
 
 	rc = power_supply_get_property(led->bms_psy, prop, &pval);
@@ -1484,9 +1482,18 @@ static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 {
 	struct qpnp_flash_led *led = dev_get_drvdata(&snode->pdev->dev);
 	u8 pmic_subtype = led->pdata->pmic_rev_id->pmic_subtype;
-	int rc, i, addr_offset;
+	int rc, i, addr_offset, flag;
 	u8 val, mask;
-
+	union power_supply_propval ret = {0, };
+#ifdef VENDOR_EDIT
+/* SHUBHAM KABRA PSW.Camera.Drv  2020-1-19  for Fixed a problem with unstable torch current */
+	if (!led->batt_psy) {
+		led->batt_psy = power_supply_get_by_name("battery");//get the battery power supply
+		if (!led->batt_psy) {
+			pr_err_ratelimited("Couldn't get batt_psy\n");
+		}
+	}
+#endif
 	if (snode->enabled == on) {
 		pr_debug("Switch node is already %s!\n",
 			on ? "enabled" : "disabled");
@@ -1495,6 +1502,16 @@ static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 
 	if (!on) {
 		rc = qpnp_flash_led_switch_disable(snode);
+#ifdef VENDOR_EDIT
+/* SHUBHAM KABRA PSW.Camera.Drv  2020-1-19  for Fixed a problem with unstable torch current */
+		ret.intval = 0;
+		flag = power_supply_set_property(led->batt_psy,
+				POWER_SUPPLY_PROP_TORCH_CURRENT_WA, &ret);
+		if(flag < 0)
+			pr_err("shubham: Unable to write original data to 0x1150");
+		else
+			pr_err("shubham: written original data 0xf to 0x1150");
+#endif
 		return rc;
 	}
 
@@ -1507,6 +1524,16 @@ static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 			return rc;
 		}
 	}
+#ifdef VENDOR_EDIT
+/* SHUBHAM KABRA PSW.Camera.Drv  2020-1-19  for Fixed a problem with unstable torch current */
+	ret.intval = 1;
+	flag = power_supply_set_property(led->batt_psy,
+		    POWER_SUPPLY_PROP_TORCH_CURRENT_WA, &ret);
+	if(flag < 0)
+		pr_err("shubham: unable to read or write data at 0x1150");
+	else
+		pr_err("shubham: successfully read & write data at 0x1150");
+#endif
 
 	val = 0;
 	for (i = 0; i < led->num_fnodes; i++)
@@ -1817,6 +1844,41 @@ static struct device_attribute qpnp_flash_led_attrs[] = {
 	__ATTR(max_current, 0664, qpnp_flash_led_max_current_show, NULL),
 	__ATTR(enable, 0664, NULL, qpnp_flash_led_prepare_store),
 };
+
+static int flash_led_psy_notifier_call(struct notifier_block *nb,
+		unsigned long ev, void *v)
+{
+	struct power_supply *psy = v;
+	struct qpnp_flash_led *led =
+			container_of(nb, struct qpnp_flash_led, nb);
+
+	if (ev != PSY_EVENT_PROP_CHANGED)
+		return NOTIFY_OK;
+
+	if (!strcmp(psy->desc->name, "bms")) {
+		led->bms_psy = power_supply_get_by_name("bms");
+		if (!led->bms_psy)
+			pr_err("Failed to get bms power_supply\n");
+		else
+			power_supply_unreg_notifier(&led->nb);
+	}
+
+	return NOTIFY_OK;
+}
+
+static int flash_led_psy_register_notifier(struct qpnp_flash_led *led)
+{
+	int rc;
+
+	led->nb.notifier_call = flash_led_psy_notifier_call;
+	rc = power_supply_reg_notifier(&led->nb);
+	if (rc < 0) {
+		pr_err("Couldn't register psy notifier, rc = %d\n", rc);
+		return rc;
+	}
+
+	return 0;
+}
 
 /* irq handler */
 static irqreturn_t qpnp_flash_led_irq_handler(int irq, void *_led)
@@ -2810,6 +2872,15 @@ static int qpnp_flash_led_probe(struct platform_device *pdev)
 		if (rc < 0) {
 			pr_err("Unable to request led_fault(%d) IRQ(err:%d)\n",
 				led->pdata->led_fault_irq, rc);
+			goto error_switch_register;
+		}
+	}
+
+	led->bms_psy = power_supply_get_by_name("bms");
+	if (!led->bms_psy) {
+		rc = flash_led_psy_register_notifier(led);
+		if (rc < 0) {
+			pr_err("Couldn't register psy notifier, rc = %d\n", rc);
 			goto error_switch_register;
 		}
 	}

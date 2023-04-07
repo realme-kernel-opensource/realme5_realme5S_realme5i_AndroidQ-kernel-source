@@ -49,30 +49,14 @@ static void perf_output_put_handle(struct perf_output_handle *handle)
 	unsigned long head;
 
 again:
-	/*
-	 * In order to avoid publishing a head value that goes backwards,
-	 * we must ensure the load of @rb->head happens after we've
-	 * incremented @rb->nest.
-	 *
-	 * Otherwise we can observe a @rb->head value before one published
-	 * by an IRQ/NMI happening between the load and the increment.
-	 */
-	barrier();
 	head = local_read(&rb->head);
 
 	/*
-	 * IRQ/NMI can happen here and advance @rb->head, causing our
-	 * load above to be stale.
+	 * IRQ/NMI can happen here, which means we can miss a head update.
 	 */
 
-	/*
-	 * If this isn't the outermost nesting, we don't have to update
-	 * @rb->user_page->data_head.
-	 */
-	if (local_read(&rb->nest) > 1) {
-		local_dec(&rb->nest);
+	if (!local_dec_and_test(&rb->nest))
 		goto out;
-	}
 
 	/*
 	 * Since the mmap() consumer (userspace) can run on a different CPU:
@@ -101,21 +85,12 @@ again:
 	 * See perf_output_begin().
 	 */
 	smp_wmb(); /* B, matches C */
-	WRITE_ONCE(rb->user_page->data_head, head);
+	rb->user_page->data_head = head;
 
 	/*
-	 * We must publish the head before decrementing the nest count,
-	 * otherwise an IRQ/NMI can publish a more recent head value and our
-	 * write will (temporarily) publish a stale value.
+	 * Now check if we missed an update -- rely on previous implied
+	 * compiler barriers to force a re-read.
 	 */
-	barrier();
-	local_set(&rb->nest, 0);
-
-	/*
-	 * Ensure we decrement @rb->nest before we validate the @rb->head.
-	 * Otherwise we cannot be sure we caught the 'last' nested update.
-	 */
-	barrier();
 	if (unlikely(head != local_read(&rb->head))) {
 		local_inc(&rb->nest);
 		goto again;
@@ -489,7 +464,7 @@ void perf_aux_output_end(struct perf_output_handle *handle, unsigned long size)
 		                     handle->aux_flags);
 	}
 
-	WRITE_ONCE(rb->user_page->aux_head, rb->aux_head);
+	rb->user_page->aux_head = rb->aux_head;
 	if (rb_need_aux_wakeup(rb))
 		wakeup = true;
 
@@ -520,7 +495,7 @@ int perf_aux_output_skip(struct perf_output_handle *handle, unsigned long size)
 
 	rb->aux_head += size;
 
-	WRITE_ONCE(rb->user_page->aux_head, rb->aux_head);
+	rb->user_page->aux_head = rb->aux_head;
 	if (rb_need_aux_wakeup(rb)) {
 		perf_output_wakeup(handle);
 		handle->wakeup = rb->aux_wakeup + rb->aux_watermark;
@@ -668,7 +643,7 @@ int rb_alloc_aux(struct ring_buffer *rb, struct perf_event *event,
 			goto out;
 	}
 
-	rb->aux_priv = event->pmu->setup_aux(event, rb->aux_pages, nr_pages,
+	rb->aux_priv = event->pmu->setup_aux(event->cpu, rb->aux_pages, nr_pages,
 					     overwrite);
 	if (!rb->aux_priv)
 		goto out;

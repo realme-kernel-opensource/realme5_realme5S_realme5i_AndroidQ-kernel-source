@@ -169,6 +169,8 @@ static const struct vadc_map_pt adcmap_batt_therm_100k[] = {
  * Voltage to temperature table for 100k pull up for bat_therm with
  * MLP356477.
  */
+#ifndef VENDOR_EDIT
+/*ZhangKun.BSP.CHG.Basic  2019/05/05  Use 100K pull_up resistance*/
 static const struct vadc_map_pt adcmap_batt_therm_100k_6125[] = {
 	{1770,	-400},
 	{1757,	-380},
@@ -241,7 +243,44 @@ static const struct vadc_map_pt adcmap_batt_therm_100k_6125[] = {
 	{129,	960},
 	{124,	980},
 };
-
+#else
+static const struct vadc_map_pt adcmap_batt_therm_100k_6125[] = {
+	{1252,	-400},
+	{1135,	-350},
+	{1017,	-300},
+	{902,	-250},
+	{793,	-200},
+	{694,	-150},
+	{605,	-100},
+	{526,	-50},
+	{458,	0},
+	{400,	50},
+	{351,	100},
+	{310,	150},
+	{275,	200},
+	{246,	250},
+	{222,	300},
+	{202,	350},
+	{185,	400},
+	{171,	450},
+	{159,	500},
+	{149,	550},
+	{141,	600},
+	{134,	650},
+	{128,	700},
+	{123,	750},
+	{119,	800},
+	{115,	850},
+	{112,	900},
+	{110,	950},
+	{107,	1000},
+	{105,	1050},
+	{104,	1100},
+	{102,	1150},
+	{101,	1200},
+	{100,	1250},
+};
+#endif /*VENDOR_EDIT*/
 /*
  * Voltage to temperature table for 30k pull up for bat_therm with
  * Alium.
@@ -323,6 +362,8 @@ static const struct vadc_map_pt adcmap_batt_therm_30k[] = {
  * Voltage to temperature table for 30k pull up for bat_therm with
  * MLP356477.
  */
+#ifndef VENDOR_EDIT
+/* Voltage to temperature */
 static const struct vadc_map_pt adcmap_batt_therm_30k_6125[] = {
 	{1842,	-400},
 	{1838,	-380},
@@ -395,6 +436,86 @@ static const struct vadc_map_pt adcmap_batt_therm_30k_6125[] = {
 	{372,	960},
 	{357,	980},
 };
+#else /* VENDOR_EDIT */
+/*
+	Voltage to temperature
+	NTC 10k, Beta 3380. Add 5.1K resistance in NTC network. voltage to temperature
+	From the attached of 80-p3255-39_a
+	0607 update for HW test
+	*/
+static const struct vadc_map_pt adcmap_batt_therm_30k_6125[] = {
+	{1667,	-400},
+	{1644,	-380},
+	{1619,	-360},
+	{1592,	-340},
+	{1564,	-320},
+	{1534,	-300},
+	{1503,	-280},
+	{1470,	-260},
+	{1436,	-240},
+	{1400,	-220},
+	{1364,	-200},
+	{1327,	-180},
+	{1289,	-160},
+	{1251,	-140},
+	{1213,	-120},
+	{1174,	-100},
+	{1136,	-80},
+	{1098,	-60},
+	{1060,	-40},
+	{1023,	-20},
+	{987,	0},
+	{951,	20},
+	{917,	40},
+	{884,	60},
+	{851,	80},
+	{820,	100},
+	{790,	120},
+	{762,	140},
+	{735,	160},
+	{709,	180},
+	{684,	200},
+	{661,	220},
+	{638,	240},
+	{617,	260},
+	{598,	280},
+	{579,	300},
+	{561,	320},
+	{544,	340},
+	{529,	360},
+	{514,	380},
+	{500,	400},
+	{487,	420},
+	{475,	440},
+	{463,	460},
+	{452,	480},
+	{442,	500},
+	{433,	520},
+	{424,	540},
+	{415,	560},
+	{408,	580},
+	{400,	600},
+	{393,	620},
+	{387,	640},
+	{381,	660},
+	{375,	680},
+	{369,	700},
+	{364,	720},
+	{360,	740},
+	{355,	760},
+	{351,	780},
+	{347,	800},
+	{343,	820},
+	{340,	840},
+	{336,	860},
+	{333,	880},
+	{330,	900},
+	{328,	920},
+	{325,	940},
+	{322,	960},
+	{320,	980}
+};
+#endif /* VENDOR_EDIT */
 
 /*
  * Voltage to temperature table for 400k pull up for bat_therm with

@@ -110,7 +110,49 @@ queue_ra_store(struct request_queue *q, const char *page, size_t count)
 
 	return ret;
 }
+#ifdef VENDOR_EDIT
+static ssize_t queue_fgio_show(struct request_queue *q, char *page)
+{
+	int cnt = q->fg_count_max;
 
+	return queue_var_show(cnt, (page));
+}
+
+static ssize_t
+queue_fgio_store(struct request_queue *q, const char *page, size_t count)
+{
+	unsigned long cnt;
+	ssize_t ret = queue_var_store(&cnt, page, count);
+
+	if (ret < 0)
+		return ret;
+
+	q->fg_count_max= cnt;
+
+	return ret;
+}
+static ssize_t queue_bothio_show(struct request_queue *q, char *page)
+{
+	int cnt = q->both_count_max;
+
+	return queue_var_show(cnt, (page));
+}
+
+static ssize_t
+queue_bothio_store(struct request_queue *q, const char *page, size_t count)
+{
+	unsigned long cnt;
+	ssize_t ret = queue_var_store(&cnt, page, count);
+
+	if (ret < 0)
+		return ret;
+
+	q->both_count_max= cnt;
+
+	return ret;
+}
+
+#endif /*VENDOR_EDIT*/
 static ssize_t queue_max_sectors_show(struct request_queue *q, char *page)
 {
 	int max_sectors_kb = queue_max_sectors(q) >> 1;
@@ -396,6 +438,20 @@ static ssize_t queue_poll_delay_store(struct request_queue *q, const char *page,
 	return count;
 }
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for ioqueue
+static ssize_t queue_show_ohm_inflight(struct request_queue *q, char *page)
+{
+	ssize_t ret;
+
+	ret = sprintf(page, "async:%d\n", q->in_flight[0]);
+	ret += sprintf(page + ret, "sync:%d\n", q->in_flight[1]);
+	ret += sprintf(page + ret, "bg:%d\n", q->in_flight[2]);
+	ret += sprintf(page + ret, "fg:%d\n", q->in_flight[3]);
+	return ret;
+}
+#endif /*VENDOR_EDIT*/
+
 static ssize_t queue_poll_show(struct request_queue *q, char *page)
 {
 	return queue_var_show(test_bit(QUEUE_FLAG_POLL, &q->queue_flags), page);
@@ -516,7 +572,19 @@ static struct queue_sysfs_entry queue_ra_entry = {
 	.show = queue_ra_show,
 	.store = queue_ra_store,
 };
+#ifdef VENDOR_EDIT
+static struct queue_sysfs_entry queue_fgio_entry = {
+	.attr = {.name = "fg_io_cnt_max", .mode = S_IRUGO | S_IWUSR },
+	.show = queue_fgio_show,
+	.store = queue_fgio_store,
+};
+static struct queue_sysfs_entry queue_bothio_entry = {
+	.attr = {.name = "both_io_cnt_max", .mode = S_IRUGO | S_IWUSR },
+	.show = queue_bothio_show,
+	.store = queue_bothio_store,
+};
 
+#endif /*VENDOR_EDIT*/
 static struct queue_sysfs_entry queue_max_sectors_entry = {
 	.attr = {.name = "max_sectors_kb", .mode = S_IRUGO | S_IWUSR },
 	.show = queue_max_sectors_show,
@@ -644,6 +712,14 @@ static struct queue_sysfs_entry queue_iostats_entry = {
 	.store = queue_store_iostats,
 };
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for ioqueue
+static struct queue_sysfs_entry queue_ohm_inflight_entry = {
+	.attr = {.name = "ohm_inflight", .mode = S_IRUGO },
+	.show = queue_show_ohm_inflight,
+};
+#endif /*VENDOR_EDIT*/
+
 static struct queue_sysfs_entry queue_random_entry = {
 	.attr = {.name = "add_random", .mode = S_IRUGO | S_IWUSR },
 	.show = queue_show_random,
@@ -690,6 +766,10 @@ static struct queue_sysfs_entry throtl_sample_time_entry = {
 static struct attribute *default_attrs[] = {
 	&queue_requests_entry.attr,
 	&queue_ra_entry.attr,
+#ifdef VENDOR_EDIT
+	&queue_fgio_entry.attr,
+	&queue_bothio_entry.attr,
+#endif /*VENDOR_EDIT*/
 	&queue_max_hw_sectors_entry.attr,
 	&queue_max_sectors_entry.attr,
 	&queue_max_segments_entry.attr,
@@ -714,6 +794,10 @@ static struct attribute *default_attrs[] = {
 	&queue_nomerges_entry.attr,
 	&queue_rq_affinity_entry.attr,
 	&queue_iostats_entry.attr,
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Add for ioqueue
+	&queue_ohm_inflight_entry.attr,
+#endif /*VENDOR_EDIT*/
 	&queue_random_entry.attr,
 	&queue_poll_entry.attr,
 	&queue_wc_entry.attr,
@@ -801,11 +885,25 @@ static void __blk_release_queue(struct work_struct *work)
 	if (test_bit(QUEUE_FLAG_POLL_STATS, &q->queue_flags))
 		blk_stat_remove_callback(q, q->poll_cb);
 	blk_stat_free_callback(q->poll_cb);
+	
+	
+	if (!blk_queue_dead(q)) {
+		/*
+		 * Last reference was dropped without having called
+		 * blk_cleanup_queue().
+		 */
+		WARN_ONCE(blk_queue_init_done(q),
+			  "request queue %p has been registered but blk_cleanup_queue() has not been called for that queue\n",
+			  q);
+		blk_exit_queue(q);
+	}
+
+	WARN(q->root_blkg,
+	     "request queue %p is being released but it has not yet been removed from the blkcg controller\n",
+		 q);
+
 
 	blk_free_queue_stats(q->stats);
-
-	if (q->mq_ops)
-		cancel_delayed_work_sync(&q->requeue_work);
 
 	blk_exit_rl(q, &q->root_rl);
 

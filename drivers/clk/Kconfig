@@ -242,5 +242,3 @@ source "drivers/clk/ti/Kconfig"
 source "drivers/clk/uniphier/Kconfig"
 
 endmenu
-
-source "drivers/clk/msm/Kconfig"

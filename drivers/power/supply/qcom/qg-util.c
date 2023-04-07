@@ -355,12 +355,12 @@ int qg_write_monotonic_soc(struct qpnp_qg *chip, int msoc)
 int qg_get_battery_temp(struct qpnp_qg *chip, int *temp)
 {
 	int rc = 0;
-
+#ifndef VENDOR_EDIT
 	if (chip->battery_missing) {
 		*temp = 250;
 		return 0;
 	}
-
+#endif
 	rc = iio_read_channel_processed(chip->batt_therm_chan, temp);
 	if (rc < 0) {
 		pr_err("Failed reading BAT_TEMP over ADC rc=%d\n", rc);

@@ -17,9 +17,7 @@
 
 #include <linux/types.h>
 
-#ifdef CONFIG_COMMAND_LINE_SIZE
-#define COMMAND_LINE_SIZE CONFIG_COMMAND_LINE_SIZE
-#endif
+#define COMMAND_LINE_SIZE 1024
 
 /* The list ends with an ATAG_NONE node. */
 #define ATAG_NONE	0x00000000

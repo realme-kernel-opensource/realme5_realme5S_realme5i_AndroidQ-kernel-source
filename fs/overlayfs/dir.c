@@ -469,7 +469,7 @@ static int ovl_create_or_link(struct dentry *dentry, struct inode *inode,
 			      bool origin)
 {
 	int err;
-	const struct cred *old_cred, *hold_cred = NULL;
+	const struct cred *old_cred;
 	struct cred *override_cred;
 	struct dentry *parent = dentry->d_parent;
 
@@ -504,7 +504,7 @@ static int ovl_create_or_link(struct dentry *dentry, struct inode *inode,
 				goto out_revert_creds;
 			}
 		}
-		hold_cred = override_creds(override_cred);
+		put_cred(override_creds(override_cred));
 		put_cred(override_cred);
 
 		if (!ovl_dentry_is_whiteout(dentry))
@@ -515,9 +515,7 @@ static int ovl_create_or_link(struct dentry *dentry, struct inode *inode,
 							hardlink);
 	}
 out_revert_creds:
-	ovl_revert_creds(old_cred ?: hold_cred);
-	if (old_cred && hold_cred)
-		put_cred(hold_cred);
+	ovl_revert_creds(old_cred);
 	if (!err) {
 		struct inode *realinode = d_inode(ovl_dentry_upper(dentry));
 
@@ -1045,7 +1043,7 @@ static int ovl_rename(struct inode *olddir, struct dentry *old,
 	if (newdentry == trap)
 		goto out_dput;
 
-	if (olddentry->d_inode == newdentry->d_inode)
+	if (WARN_ON(olddentry->d_inode == newdentry->d_inode))
 		goto out_dput;
 
 	err = 0;

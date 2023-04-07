@@ -964,10 +964,10 @@ enum {
 };
 
 static const char *const mask_tokens[] = {
-	"^MAY_EXEC",
-	"^MAY_WRITE",
-	"^MAY_READ",
-	"^MAY_APPEND"
+	"MAY_EXEC",
+	"MAY_WRITE",
+	"MAY_READ",
+	"MAY_APPEND"
 };
 
 #define __ima_hook_stringify(str)	(#str),
@@ -1027,7 +1027,6 @@ int ima_policy_show(struct seq_file *m, void *v)
 	struct ima_rule_entry *entry = v;
 	int i;
 	char tbuf[64] = {0,};
-	int offset = 0;
 
 	rcu_read_lock();
 
@@ -1047,17 +1046,15 @@ int ima_policy_show(struct seq_file *m, void *v)
 	if (entry->flags & IMA_FUNC)
 		policy_func_show(m, entry->func);
 
-	if ((entry->flags & IMA_MASK) || (entry->flags & IMA_INMASK)) {
-		if (entry->flags & IMA_MASK)
-			offset = 1;
+	if (entry->flags & IMA_MASK) {
 		if (entry->mask & MAY_EXEC)
-			seq_printf(m, pt(Opt_mask), mt(mask_exec) + offset);
+			seq_printf(m, pt(Opt_mask), mt(mask_exec));
 		if (entry->mask & MAY_WRITE)
-			seq_printf(m, pt(Opt_mask), mt(mask_write) + offset);
+			seq_printf(m, pt(Opt_mask), mt(mask_write));
 		if (entry->mask & MAY_READ)
-			seq_printf(m, pt(Opt_mask), mt(mask_read) + offset);
+			seq_printf(m, pt(Opt_mask), mt(mask_read));
 		if (entry->mask & MAY_APPEND)
-			seq_printf(m, pt(Opt_mask), mt(mask_append) + offset);
+			seq_printf(m, pt(Opt_mask), mt(mask_append));
 		seq_puts(m, " ");
 	}
 

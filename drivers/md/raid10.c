@@ -226,7 +226,7 @@ static void * r10buf_pool_alloc(gfp_t gfp_flags, void *data)
 
 out_free_pages:
 	while (--j >= 0)
-		resync_free_pages(&rps[j]);
+		resync_free_pages(&rps[j * 2]);
 
 	j = 0;
 out_free_bio:

@@ -90,7 +90,7 @@ struct __sensor_param {
  * @list: sibling thermal zone pointer
  * @senps: sensor related parameters
  */
-
+#ifndef VENDOR_EDIT
 struct __thermal_zone {
 	enum thermal_device_mode mode;
 	int passive_delay;
@@ -113,6 +113,7 @@ struct __thermal_zone {
 	/* sensor interface */
 	struct __sensor_param *senps;
 };
+#endif
 
 /**
  * struct virtual_sensor - internal representation of a virtual thermal zone
@@ -217,15 +218,13 @@ static int of_thermal_set_trips(struct thermal_zone_device *tz,
 		return -EINVAL;
 
 	mutex_lock(&data->senps->lock);
-	if (data->mode == THERMAL_DEVICE_DISABLED)
-		goto set_trips_exit;
 	of_thermal_aggregate_trip_types(tz, GENMASK(THERMAL_TRIP_CRITICAL, 0),
 					&low, &high);
 	data->senps->trip_low = low;
 	data->senps->trip_high = high;
 	ret = data->senps->ops->set_trips(data->senps->sensor_data,
 					  low, high);
-set_trips_exit:
+
 	mutex_unlock(&data->senps->lock);
 	return ret;
 }
@@ -655,7 +654,6 @@ static void handle_thermal_trip(struct thermal_zone_device *tz,
 	struct thermal_zone_device *zone;
 	struct __thermal_zone *data = tz->devdata;
 	struct list_head *head;
-	bool notify = false;
 
 	head = &data->senps->first_tz;
 	list_for_each_entry(data, head, list) {
@@ -668,19 +666,10 @@ static void handle_thermal_trip(struct thermal_zone_device *tz,
 		} else {
 			if (!of_thermal_is_trips_triggered(zone, trip_temp))
 				continue;
-			notify = true;
 			thermal_zone_device_update_temp(zone,
 				THERMAL_EVENT_UNSPECIFIED, trip_temp);
 		}
 	}
-
-	/*
-	 * It is better to notify at least one thermal zone if trip is violated
-	 * for none.
-	 */
-	if (temp_valid && !notify)
-		thermal_zone_device_update_temp(tz, THERMAL_EVENT_UNSPECIFIED,
-				trip_temp);
 }
 
 /*
@@ -1345,6 +1334,13 @@ __init *thermal_of_build_thermal_zone(struct device_node *np)
 
 	tz->is_wakeable = of_property_read_bool(np,
 					"wake-capable-sensor");
+#ifdef VENDOR_EDIT
+	tz->temp_track = of_property_read_bool(np,
+					"temp-track");
+
+	tz->dynamic_trip = of_property_read_bool(np,
+					"dynamic-trip");
+#endif
 	/*
 	 * REVIST: for now, the thermal framework supports only
 	 * one sensor per thermal zone. Thus, we are considering

@@ -113,6 +113,22 @@ MODULE_PARM_DESC(write_timeout, "Time (in ms) to try writes (default 25)");
 	((1 << AT24_SIZE_FLAGS | (_flags)) 		\
 	    << AT24_SIZE_BYTELEN | ilog2(_len))
 
+/*
+ * Both reads and writes fail if the previous write didn't complete yet. This
+ * macro loops a few times waiting at least long enough for one entire page
+ * write to work while making sure that at least one iteration is run before
+ * checking the break condition.
+ *
+ * It takes two parameters: a variable in which the future timeout in jiffies
+ * will be stored and a temporary variable holding the time of the last
+ * iteration of processing the request. Both should be unsigned integers
+ * holding at least 32 bits.
+ */
+#define loop_until_timeout(tout, op_time)				\
+	for (tout = jiffies + msecs_to_jiffies(write_timeout), op_time = 0; \
+	     op_time ? time_before(op_time, tout) : true;		\
+	     usleep_range(1000, 1500), op_time = jiffies)
+
 static const struct i2c_device_id at24_ids[] = {
 	/* needs 8 addresses as A0-A2 are ignored */
 	{ "24c00",	AT24_DEVICE_MAGIC(128 / 8,	AT24_FLAG_TAKE8ADDR) },
@@ -218,14 +234,7 @@ static ssize_t at24_eeprom_read_smbus(struct at24_data *at24, char *buf,
 	if (count > I2C_SMBUS_BLOCK_MAX)
 		count = I2C_SMBUS_BLOCK_MAX;
 
-	timeout = jiffies + msecs_to_jiffies(write_timeout);
-	do {
-		/*
-		 * The timestamp shall be taken before the actual operation
-		 * to avoid a premature timeout in case of high CPU load.
-		 */
-		read_time = jiffies;
-
+	loop_until_timeout(timeout, read_time) {
 		status = i2c_smbus_read_i2c_block_data_or_emulated(client,
 								   offset,
 								   count, buf);
@@ -235,9 +244,7 @@ static ssize_t at24_eeprom_read_smbus(struct at24_data *at24, char *buf,
 
 		if (status == count)
 			return count;
-
-		usleep_range(1000, 1500);
-	} while (time_before(read_time, timeout));
+	}
 
 	return -ETIMEDOUT;
 }
@@ -277,14 +284,7 @@ static ssize_t at24_eeprom_read_i2c(struct at24_data *at24, char *buf,
 	msg[1].buf = buf;
 	msg[1].len = count;
 
-	timeout = jiffies + msecs_to_jiffies(write_timeout);
-	do {
-		/*
-		 * The timestamp shall be taken before the actual operation
-		 * to avoid a premature timeout in case of high CPU load.
-		 */
-		read_time = jiffies;
-
+	loop_until_timeout(timeout, read_time) {
 		status = i2c_transfer(client->adapter, msg, 2);
 		if (status == 2)
 			status = count;
@@ -294,9 +294,7 @@ static ssize_t at24_eeprom_read_i2c(struct at24_data *at24, char *buf,
 
 		if (status == count)
 			return count;
-
-		usleep_range(1000, 1500);
-	} while (time_before(read_time, timeout));
+	}
 
 	return -ETIMEDOUT;
 }
@@ -345,20 +343,11 @@ static ssize_t at24_eeprom_read_serial(struct at24_data *at24, char *buf,
 	msg[1].buf = buf;
 	msg[1].len = count;
 
-	timeout = jiffies + msecs_to_jiffies(write_timeout);
-	do {
-		/*
-		 * The timestamp shall be taken before the actual operation
-		 * to avoid a premature timeout in case of high CPU load.
-		 */
-		read_time = jiffies;
-
+	loop_until_timeout(timeout, read_time) {
 		status = i2c_transfer(client->adapter, msg, 2);
 		if (status == 2)
 			return count;
-
-		usleep_range(1000, 1500);
-	} while (time_before(read_time, timeout));
+	}
 
 	return -ETIMEDOUT;
 }
@@ -385,20 +374,11 @@ static ssize_t at24_eeprom_read_mac(struct at24_data *at24, char *buf,
 	msg[1].buf = buf;
 	msg[1].len = count;
 
-	timeout = jiffies + msecs_to_jiffies(write_timeout);
-	do {
-		/*
-		 * The timestamp shall be taken before the actual operation
-		 * to avoid a premature timeout in case of high CPU load.
-		 */
-		read_time = jiffies;
-
+	loop_until_timeout(timeout, read_time) {
 		status = i2c_transfer(client->adapter, msg, 2);
 		if (status == 2)
 			return count;
-
-		usleep_range(1000, 1500);
-	} while (time_before(read_time, timeout));
+	}
 
 	return -ETIMEDOUT;
 }
@@ -440,14 +420,7 @@ static ssize_t at24_eeprom_write_smbus_block(struct at24_data *at24,
 	client = at24_translate_offset(at24, &offset);
 	count = at24_adjust_write_count(at24, offset, count);
 
-	timeout = jiffies + msecs_to_jiffies(write_timeout);
-	do {
-		/*
-		 * The timestamp shall be taken before the actual operation
-		 * to avoid a premature timeout in case of high CPU load.
-		 */
-		write_time = jiffies;
-
+	loop_until_timeout(timeout, write_time) {
 		status = i2c_smbus_write_i2c_block_data(client,
 							offset, count, buf);
 		if (status == 0)
@@ -458,9 +431,7 @@ static ssize_t at24_eeprom_write_smbus_block(struct at24_data *at24,
 
 		if (status == count)
 			return count;
-
-		usleep_range(1000, 1500);
-	} while (time_before(write_time, timeout));
+	}
 
 	return -ETIMEDOUT;
 }
@@ -475,14 +446,7 @@ static ssize_t at24_eeprom_write_smbus_byte(struct at24_data *at24,
 
 	client = at24_translate_offset(at24, &offset);
 
-	timeout = jiffies + msecs_to_jiffies(write_timeout);
-	do {
-		/*
-		 * The timestamp shall be taken before the actual operation
-		 * to avoid a premature timeout in case of high CPU load.
-		 */
-		write_time = jiffies;
-
+	loop_until_timeout(timeout, write_time) {
 		status = i2c_smbus_write_byte_data(client, offset, buf[0]);
 		if (status == 0)
 			status = count;
@@ -492,9 +456,7 @@ static ssize_t at24_eeprom_write_smbus_byte(struct at24_data *at24,
 
 		if (status == count)
 			return count;
-
-		usleep_range(1000, 1500);
-	} while (time_before(write_time, timeout));
+	}
 
 	return -ETIMEDOUT;
 }
@@ -523,14 +485,7 @@ static ssize_t at24_eeprom_write_i2c(struct at24_data *at24, const char *buf,
 	memcpy(&msg.buf[i], buf, count);
 	msg.len = i + count;
 
-	timeout = jiffies + msecs_to_jiffies(write_timeout);
-	do {
-		/*
-		 * The timestamp shall be taken before the actual operation
-		 * to avoid a premature timeout in case of high CPU load.
-		 */
-		write_time = jiffies;
-
+	loop_until_timeout(timeout, write_time) {
 		status = i2c_transfer(client->adapter, &msg, 1);
 		if (status == 1)
 			status = count;
@@ -540,9 +495,7 @@ static ssize_t at24_eeprom_write_i2c(struct at24_data *at24, const char *buf,
 
 		if (status == count)
 			return count;
-
-		usleep_range(1000, 1500);
-	} while (time_before(write_time, timeout));
+	}
 
 	return -ETIMEDOUT;
 }
@@ -834,7 +787,7 @@ static int at24_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	at24->nvmem_config.name = dev_name(&client->dev);
 	at24->nvmem_config.dev = &client->dev;
 	at24->nvmem_config.read_only = !writable;
-	at24->nvmem_config.root_only = !(chip.flags & AT24_FLAG_IRUGO);
+	at24->nvmem_config.root_only = true;
 	at24->nvmem_config.owner = THIS_MODULE;
 	at24->nvmem_config.compat = true;
 	at24->nvmem_config.base_dev = &client->dev;

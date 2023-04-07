@@ -53,15 +53,6 @@
 #define	MM_BUFFERQ_1 1001
 #define	MM_BUFFERQ_END 1002
 
-#define	MM_DATA_START 1100
-#define	MM_DATA_NETWORK_1 1101
-#define	MM_DATA_NETWORK_2 1102
-#define	MM_DATA_END 1103
-
-#define	MM_HSI2S_START 1200
-#define	MM_HSI2S_1 1201
-#define	MM_HSI2S_END 1202
-
-#define	MM_ID_MAX	1203
+#define MM_ID_MAX	1003
 
 #endif /* HABMMID_H */

@@ -21,6 +21,11 @@
 #include <asm/opal.h>
 
 /*
+ * For static allocation of some of the structures.
+ */
+#define IMC_MAX_PMUS			32
+
+/*
  * Compatibility macros for IMC devices
  */
 #define IMC_DTB_COMPAT			"ibm,opal-in-memory-counters"
@@ -120,5 +125,4 @@ enum {
 extern int init_imc_pmu(struct device_node *parent,
 				struct imc_pmu *pmu_ptr, int pmu_id);
 extern void thread_imc_disable(void);
-extern int get_max_nest_dev(void);
 #endif /* __ASM_POWERPC_IMC_PMU_H */

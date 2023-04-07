@@ -881,6 +881,21 @@ config NETFILTER_XT_TARGET_LOG
 
 	  To compile it as a module, choose M here.  If unsure, say N.
 
+#ifdef VENDOR_EDIT
+#Add for limit speed function
+config NETFILTER_XT_TARGET_IMQ
+    tristate '"IMQ" target support'
+	depends on NETFILTER_XTABLES
+	depends on IP_NF_MANGLE || IP6_NF_MANGLE
+	select IMQ
+	default y
+        help
+          This option adds a `IMQ' target which is used to specify if and
+          to which imq device packets should get enqueued/dequeued.
+
+          To compile it as a module, choose M here.  If unsure, say N.
+#endif /* VENDOR_EDIT */
+
 config NETFILTER_XT_TARGET_MARK
 	tristate '"MARK" target support'
 	depends on NETFILTER_ADVANCED
@@ -1408,6 +1423,31 @@ config NETFILTER_XT_MATCH_PKTTYPE
 	  iptables -A INPUT -m pkttype --pkt-type broadcast -j LOG
 
 	  To compile it as a module, choose M here.  If unsure, say N.
+
+config NETFILTER_XT_MATCH_QTAGUID
+	bool '"quota, tag, owner" match and stats support'
+        depends on NETFILTER_XT_MATCH_SOCKET
+	depends on NETFILTER_XT_MATCH_OWNER=n
+	help
+	  This option replaces the `owner' match. In addition to matching
+	  on uid, it keeps stats based on a tag assigned to a socket.
+	  The full tag is comprised of a UID and an accounting tag.
+	  The tags are assignable to sockets from user space (e.g. a download
+	  manager can assign the socket to another UID for accounting).
+	  Stats and control are done via /proc/net/xt_qtaguid/.
+	  It replaces owner as it takes the same arguments, but should
+	  really be recognized by the iptables tool.
+
+	  If unsure, say `N'.
+
+config XT_QTAGUID_OPPO_STATS
+	bool 'netstat backup support'
+	depends on NETFILTER_XT_MATCH_QTAGUID=y
+	default y if NETFILTER_XT_MATCH_QTAGUID=y
+	help
+	  This option enables support for backup of netstat before sleep,
+	  it is better for analysing net wakeup issue.
+	  If unsure, say `N'.
 
 config NETFILTER_XT_MATCH_QUOTA
 	tristate '"quota" match support'

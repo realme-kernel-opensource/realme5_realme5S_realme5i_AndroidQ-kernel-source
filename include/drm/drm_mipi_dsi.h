@@ -284,8 +284,18 @@ int mipi_dsi_dcs_set_pixel_format(struct mipi_dsi_device *dsi, u8 format);
 int mipi_dsi_dcs_set_tear_scanline(struct mipi_dsi_device *dsi, u16 scanline);
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness);
+#ifdef VENDOR_EDIT
+int oppo_mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
+					u16 brightness, int is_ili);
+#endif
+int mipi_dsi_dcs_set_display_brightness_himax(struct mipi_dsi_device *dsi,
+					u16 brightness);
 int mipi_dsi_dcs_get_display_brightness(struct mipi_dsi_device *dsi,
 					u16 *brightness);
+
+//#ifdef ODM_WT_EDIT
+int mipi_dsi_dcs_set_display_cabc(struct mipi_dsi_device *dsi, u32 cabc_mode);
+//#endif /* ODM_WT_EDIT */
 
 /**
  * struct mipi_dsi_driver - DSI driver

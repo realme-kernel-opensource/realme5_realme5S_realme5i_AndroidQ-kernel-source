@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -176,11 +176,9 @@ int cnss_request_bus_bandwidth(struct device *dev, int bandwidth)
 
 	switch (bandwidth) {
 	case CNSS_BUS_WIDTH_NONE:
-	case CNSS_BUS_WIDTH_IDLE:
 	case CNSS_BUS_WIDTH_LOW:
 	case CNSS_BUS_WIDTH_MEDIUM:
 	case CNSS_BUS_WIDTH_HIGH:
-	case CNSS_BUS_WIDTH_VERY_HIGH:
 		ret = msm_bus_scale_client_update_request(
 			bus_bw_info->bus_client, bandwidth);
 		if (!ret)
@@ -366,24 +364,6 @@ int cnss_set_fw_log_mode(struct device *dev, u8 fw_log_mode)
 }
 EXPORT_SYMBOL(cnss_set_fw_log_mode);
 
-int cnss_set_pcie_gen_speed(struct device *dev, u8 pcie_gen_speed)
-{
-	struct cnss_plat_data *plat_priv = cnss_bus_dev_to_plat_priv(dev);
-
-	if (plat_priv->device_id != QCA6490_DEVICE_ID ||
-	    !plat_priv->fw_pcie_gen_switch)
-		return -ENOTSUPP;
-
-	if (pcie_gen_speed < QMI_PCIE_GEN_SPEED_1_V01 ||
-	    pcie_gen_speed > QMI_PCIE_GEN_SPEED_3_V01)
-		return -EINVAL;
-
-	cnss_pr_dbg("WLAN provided PCIE gen speed: %d\n", pcie_gen_speed);
-	plat_priv->pcie_gen_speed = pcie_gen_speed;
-	return 0;
-}
-EXPORT_SYMBOL(cnss_set_pcie_gen_speed);
-
 static int cnss_fw_mem_ready_hdlr(struct cnss_plat_data *plat_priv)
 {
 	int ret = 0;
@@ -433,8 +413,6 @@ static int cnss_fw_ready_hdlr(struct cnss_plat_data *plat_priv)
 	del_timer(&plat_priv->fw_boot_timer);
 	set_bit(CNSS_FW_READY, &plat_priv->driver_state);
 	clear_bit(CNSS_DEV_ERR_NOTIFY, &plat_priv->driver_state);
-
-	cnss_wlfw_send_pcie_gen_speed_sync(plat_priv);
 
 	if (test_bit(CNSS_FW_BOOT_RECOVERY, &plat_priv->driver_state)) {
 		clear_bit(CNSS_FW_BOOT_RECOVERY, &plat_priv->driver_state);
@@ -717,11 +695,6 @@ int cnss_idle_shutdown(struct device *dev)
 	if (!plat_priv) {
 		cnss_pr_err("plat_priv is NULL\n");
 		return -ENODEV;
-	}
-
-	if (test_bit(CNSS_IN_SUSPEND_RESUME, &plat_priv->driver_state)) {
-		cnss_pr_dbg("System suspend or resume in progress, ignore idle shutdown\n");
-		return -EAGAIN;
 	}
 
 	cnss_pr_dbg("Doing idle shutdown\n");
@@ -1397,7 +1370,7 @@ static int cnss_qdss_trace_save_hdlr(struct cnss_plat_data *plat_priv,
 			va = cnss_qdss_trace_pa_to_va(plat_priv, pa,
 						      size, &seg_id);
 			if (!va) {
-				cnss_pr_err("Fail to find matching va for pa 0x%llx\n",
+				cnss_pr_err("Fail to find matching va for pa %pa\n",
 					    pa);
 				ret = -EINVAL;
 				break;
@@ -1964,17 +1937,6 @@ static void cnss_init_control_params(struct cnss_plat_data *plat_priv)
 	plat_priv->ctrl_params.bdf_type = CNSS_BDF_TYPE_DEFAULT;
 }
 
-static void cnss_get_wlaon_pwr_ctrl_info(struct cnss_plat_data *plat_priv)
-{
-	struct device *dev = &plat_priv->plat_dev->dev;
-
-	plat_priv->set_wlaon_pwr_ctrl =
-		of_property_read_bool(dev->of_node, "qcom,set-wlaon-pwr-ctrl");
-
-	cnss_pr_dbg("set_wlaon_pwr_ctrl is %d\n",
-		    plat_priv->set_wlaon_pwr_ctrl);
-}
-
 static const struct platform_device_id cnss_platform_id_table[] = {
 	{ .name = "qca6174", .driver_data = QCA6174_DEVICE_ID, },
 	{ .name = "qca6290", .driver_data = QCA6290_DEVICE_ID, },
@@ -2083,7 +2045,6 @@ static int cnss_probe(struct platform_device *plat_dev)
 	platform_set_drvdata(plat_dev, plat_priv);
 	INIT_LIST_HEAD(&plat_priv->vreg_list);
 
-	cnss_get_wlaon_pwr_ctrl_info(plat_priv);
 	cnss_init_control_params(plat_priv);
 
 	ret = cnss_get_resources(plat_priv);

@@ -29,7 +29,6 @@
 #include <linux/percpu.h>
 #include <linux/slab.h>
 #include <linux/msm_rtb.h>
-#include <linux/wakeup_reason.h>
 
 #include <linux/irqchip.h>
 #include <linux/irqchip/arm-gic-common.h>
@@ -46,6 +45,56 @@
 #include <linux/notifier.h>
 
 #include "irq-gic-common.h"
+#ifdef VENDOR_EDIT
+
+//add for modem wake up source
+#define WAKEUP_SOURCE_MODEM 					60	//qcom,glink-smem-native-xprt-modem
+#define WAKEUP_SOURCE_MODEM_IPA					119 //ipa
+#define WAKEUP_SOURCE_ADSP						61  //qcom,glink-smem-native-xprt-adsp
+#define WAKEUP_SOURCE_CDSP						62	//qcom,glink-smem-native-xprt-cdsp
+
+extern u64 wakeup_source_count_adsp ;
+extern u64 wakeup_source_count_cdsp;
+extern u64 wakeup_source_count_modem;
+extern u64 wakeup_source_count_all;
+
+#define MODEM_WAKEUP_SRC_NUM 3
+#define MODEM_DIAG_WS_INDEX 0
+#define MODEM_IPA_WS_INDEX 1
+#define MODEM_QMI_WS_INDEX 2
+
+#define WAKEUP_SOURCE_INT_FIRST		1
+#define WAKEUP_SOURCE_INT_SECOND	2
+
+extern int modem_wakeup_src_count[MODEM_WAKEUP_SRC_NUM];
+extern char modem_wakeup_src_string[MODEM_WAKEUP_SRC_NUM][10];
+#endif /* VENDOR_EDIT */
+#if defined(VENDOR_EDIT) && defined(CONFIG_PROCESS_RECLAIM) && defined(CONFIG_OPPO_SPECIAL_BUILD)
+#include <linux/sched/clock.h>
+#endif
+
+#ifdef VENDOR_EDIT
+#define WLAN_WAKEUP_IRQ_NUMBER	725
+#define WAKEUP_SOURCE_WIFI_1ST 123
+#define WAKEUP_SOURCE_WIFI_2ND 129
+#define WAKEUP_SOURCE_WIFI_3RD 131
+#define WAKEUP_SOURCE_WIFI_4TH 134
+
+extern u64 wakeup_source_count_wifi ;
+#endif /*VENDOR_EDIT*/
+//Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink.
+//#ifdef VENDOR_EDIT
+#define GLINK_IRQ_NAME "glink-native"
+int qrtr_first_msg = 0;
+char qrtr_first_msg_details[256] = {0};
+char *sub_qrtr_first_msg_details = NULL;
+//#endif
+/* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+//Add irq of WiFi for SDM710
+static char WLAN_DATA_IRQ_NAME[]=     			"WLAN"; 		     //eg:WLAN_CE_0 ~WLAN_CE_11
+#endif /*VENDOR_EDIT*/
 
 struct redist_region {
 	void __iomem		*redist_base;
@@ -410,9 +459,6 @@ static void gic_hibernation_suspend(void)
 	void __iomem *base = gic_data.dist_base;
 	void __iomem *rdist_base = gic_data_rdist_sgi_base();
 
-	if ((base == NULL) || (rdist_base == NULL))
-		return;
-
 	gic_data.enabled_sgis = readl_relaxed(rdist_base + GICD_ISENABLER);
 	gic_data.pending_sgis = readl_relaxed(rdist_base + GICD_ISPENDR);
 	/* Store edge level for PPIs by reading GICR_ICFGR1 */
@@ -446,9 +492,9 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	u32 pending[32];
 	void __iomem *base = gic_data.dist_base;
 
-	if (base == NULL)
-		return;
-
+	#ifdef VENDOR_EDIT
+	wakeup_source_count_all++;
+	#endif /*VENDOR_EDIT*/
 	if (!msm_show_resume_irq_mask)
 		return;
 
@@ -470,7 +516,68 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		else if (desc->action && desc->action->name)
 			name = desc->action->name;
 
-		pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+        #ifndef VENDOR_EDIT
+        pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+        #else
+        if(name != NULL)
+        {
+            //#ifdef VENDOR_EDIT
+            //Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink
+            if (strncmp(name, GLINK_IRQ_NAME, strlen(GLINK_IRQ_NAME)) == 0) {
+                qrtr_first_msg = 1;
+            }
+            //#endif /* VENDOR_EDIT */
+            pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+
+            #ifdef VENDOR_EDIT
+            //Add irq of WiFi for SDM710
+            if(strncmp(name, WLAN_DATA_IRQ_NAME, sizeof(WLAN_DATA_IRQ_NAME)-1) == 0)
+            {
+                wakeup_source_count_wifi++;
+            }
+            #endif //VENDOR_EDIT
+        }
+        #endif
+                #ifdef VENDOR_EDIT
+			if((irq  >= WAKEUP_SOURCE_WIFI_1ST && irq  <= WAKEUP_SOURCE_WIFI_2ND) ||
+				(irq  >= WAKEUP_SOURCE_WIFI_3RD && irq  <= WAKEUP_SOURCE_WIFI_4TH)) {
+				wakeup_source_count_wifi++;
+			}
+			if (irq == WLAN_WAKEUP_IRQ_NUMBER)
+		    {
+		    	#ifdef VENDOR_EDIT
+				// modem_wakeup_source = 0;
+				 //schedule_work(&wakeup_reason_work);
+			 	#endif
+			}
+		#endif //VENDOR_EDIT
+
+		#ifdef VENDOR_EDIT
+			if ((WAKEUP_SOURCE_MODEM == irq ) || (WAKEUP_SOURCE_MODEM_IPA == irq))
+			{
+				wakeup_source_count_modem++;
+				if(WAKEUP_SOURCE_MODEM == irq)
+				{
+					modem_wakeup_src_count[MODEM_QMI_WS_INDEX]++;
+				}else if (WAKEUP_SOURCE_MODEM_IPA == irq) {
+					modem_wakeup_src_count[MODEM_IPA_WS_INDEX]++;
+					#ifdef VENDOR_EDIT
+				 	// modem_wakeup_source = 0;
+					//schedule_work(&wakeup_reason_work);
+					#endif
+				}
+			}
+		//Yongyao.Song add end
+		#endif /*VENDOR_EDIT*/
+
+		#ifdef VENDOR_EDIT
+	        if(WAKEUP_SOURCE_ADSP == irq) {
+				wakeup_source_count_adsp++;
+			}
+	        if(WAKEUP_SOURCE_CDSP == irq) {
+	           wakeup_source_count_cdsp++;
+			}
+	    #endif
 	}
 }
 
@@ -555,6 +662,13 @@ static u64 gic_mpidr_to_affinity(unsigned long mpidr)
 static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 {
 	u32 irqnr;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PROCESS_RECLAIM) && defined(CONFIG_OPPO_SPECIAL_BUILD)
+	struct task_struct *task = current;
+	unsigned long long start_ns = 0;
+
+	if (task && (task->flags & PF_RECLAIM_SHRINK))
+		start_ns = sched_clock();
+#endif
 
 	do {
 		irqnr = gic_read_iar();
@@ -571,8 +685,6 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 			err = handle_domain_irq(gic_data.domain, irqnr, regs);
 			if (err) {
 				WARN_ONCE(true, "Unexpected interrupt received!\n");
-				log_abnormal_wakeup_reason(
-						"unexpected HW IRQ %u", irqnr);
 				if (static_key_true(&supports_deactivate)) {
 					if (irqnr < 8192)
 						gic_write_dir(irqnr);
@@ -602,6 +714,11 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 			continue;
 		}
 	} while (irqnr != ICC_IAR1_EL1_SPURIOUS);
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_PROCESS_RECLAIM) && defined(CONFIG_OPPO_SPECIAL_BUILD)
+	if ((task == current) && (task->flags & PF_RECLAIM_SHRINK))
+		task->reclaim_intr_ns += (unsigned long)(sched_clock() - start_ns);
+#endif
 }
 
 static void gic_dist_init(void)
@@ -697,11 +814,17 @@ static int __gic_populate_rdist(struct redist_region *region, void __iomem *ptr)
 		u64 offset = ptr - region->redist_base;
 		gic_data_rdist_rd_base() = ptr;
 		gic_data_rdist()->phys_base = region->phys_base + offset;
-
+#ifndef VENDOR_EDIT
 		pr_info("CPU%d: found redistributor %lx region %d:%pa\n",
 			smp_processor_id(), mpidr,
 			(int)(region - gic_data.redist_regions),
 			&gic_data_rdist()->phys_base);
+#else
+		pr_debug("CPU%d: found redistributor %lx region %d:%pa\n",
+			smp_processor_id(), mpidr,
+			(int)(region - gic_data.redist_regions),
+			&gic_data_rdist()->phys_base);
+#endif
 		return 0;
 	}
 
@@ -991,9 +1114,7 @@ static struct irq_chip gic_chip = {
 	.irq_set_affinity	= gic_set_affinity,
 	.irq_get_irqchip_state	= gic_irq_get_irqchip_state,
 	.irq_set_irqchip_state	= gic_irq_set_irqchip_state,
-	.flags			= IRQCHIP_SET_TYPE_MASKED |
-				  IRQCHIP_SKIP_SET_WAKE |
-				  IRQCHIP_MASK_ON_SUSPEND,
+	.flags			= IRQCHIP_SET_TYPE_MASKED,
 };
 
 static struct irq_chip gic_eoimode1_chip = {
@@ -1006,9 +1127,7 @@ static struct irq_chip gic_eoimode1_chip = {
 	.irq_get_irqchip_state	= gic_irq_get_irqchip_state,
 	.irq_set_irqchip_state	= gic_irq_set_irqchip_state,
 	.irq_set_vcpu_affinity	= gic_irq_set_vcpu_affinity,
-	.flags			= IRQCHIP_SET_TYPE_MASKED |
-				  IRQCHIP_SKIP_SET_WAKE |
-				  IRQCHIP_MASK_ON_SUSPEND,
+	.flags			= IRQCHIP_SET_TYPE_MASKED,
 };
 
 #define GIC_ID_NR		(1U << gic_data.rdists.id_bits)
@@ -1378,7 +1497,7 @@ static void __init gic_of_setup_kvm_info(struct device_node *node)
 	gic_set_kvm_info(&gic_v3_kvm_info);
 }
 
-static int __init gicv3_of_init(struct device_node *node, struct device_node *parent)
+static int __init gic_of_init(struct device_node *node, struct device_node *parent)
 {
 	void __iomem *dist_base;
 	struct redist_region *rdist_regs;
@@ -1447,7 +1566,7 @@ out_unmap_dist:
 	return err;
 }
 
-IRQCHIP_DECLARE(gic_v3, "arm,gic-v3", gicv3_of_init);
+IRQCHIP_DECLARE(gic_v3, "arm,gic-v3", gic_of_init);
 
 #ifdef CONFIG_ACPI
 static struct
@@ -1456,7 +1575,6 @@ static struct
 	struct redist_region *redist_regs;
 	u32 nr_redist_regions;
 	bool single_redist;
-	int enabled_rdists;
 	u32 maint_irq;
 	int maint_irq_mode;
 	phys_addr_t vcpu_base;
@@ -1551,10 +1669,8 @@ static int __init gic_acpi_match_gicc(struct acpi_subtable_header *header,
 	 * If GICC is enabled and has valid gicr base address, then it means
 	 * GICR base is presented via GICC
 	 */
-	if ((gicc->flags & ACPI_MADT_ENABLED) && gicc->gicr_base_address) {
-		acpi_data.enabled_rdists++;
+	if ((gicc->flags & ACPI_MADT_ENABLED) && gicc->gicr_base_address)
 		return 0;
-	}
 
 	/*
 	 * It's perfectly valid firmware can pass disabled GICC entry, driver
@@ -1584,10 +1700,8 @@ static int __init gic_acpi_count_gicr_regions(void)
 
 	count = acpi_table_parse_madt(ACPI_MADT_TYPE_GENERIC_INTERRUPT,
 				      gic_acpi_match_gicc, 0);
-	if (count > 0) {
+	if (count > 0)
 		acpi_data.single_redist = true;
-		count = acpi_data.enabled_rdists;
-	}
 
 	return count;
 }

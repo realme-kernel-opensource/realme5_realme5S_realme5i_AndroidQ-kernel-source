@@ -122,13 +122,6 @@ struct mmc_cmdq_host_ops {
 	int (*halt)(struct mmc_host *host, bool halt);
 	void (*reset)(struct mmc_host *host, bool soft);
 	void (*dumpstate)(struct mmc_host *host);
-	/*
-	 * Update the request queue with keyslot manager details. This keyslot
-	 * manager will be used by block crypto to configure the crypto Engine
-	 * for data encryption.
-	 */
-	void (*cqe_crypto_update_queue)(struct mmc_host *host,
-					struct request_queue *queue);
 };
 
 struct mmc_host_ops {
@@ -506,7 +499,6 @@ struct mmc_host {
 #define MMC_CAP_HW_RESET	(1 << 31)	/* Hardware reset */
 
 	u32			caps2;		/* More host capabilities */
-	u32			cached_caps2;
 
 #define MMC_CAP2_BOOTPART_NOACC (1 << 0)        /* Boot partition no access */
 #define MMC_CAP2_FULL_PWR_CYCLE (1 << 2)        /* Can do full power cycle */
@@ -603,6 +595,9 @@ struct mmc_host {
 
 	struct delayed_work	detect;
 	int			detect_change;	/* card detect flag */
+#ifdef VENDOR_EDIT
+	int detect_change_retry;
+#endif /* VENDOR_EDIT */
 	struct mmc_slot		slot;
 
 	const struct mmc_bus_ops *bus_ops;	/* current bus driver */
@@ -618,6 +613,10 @@ struct mmc_host {
 	struct delayed_work	sdio_irq_work;
 	bool			sdio_irq_pending;
 	atomic_t		sdio_irq_thread_abort;
+
+#ifdef VENDOR_EDIT
+        bool                    card_stuck_in_programing_status;
+#endif /* VENDOR_EDIT */
 
 	mmc_pm_flag_t		pm_flags;	/* requested pm features */
 

@@ -196,6 +196,9 @@ static int __fw_state_check(struct fw_state *fw_st, enum fw_status status)
 #define FW_OPT_NO_WARN	(1U << 3)
 #define FW_OPT_NOCACHE	(1U << 4)
 
+//#ifdef ODM_WT_EDIT
+#define FW_OPT_COMPARE (1U << 5)
+//#endif/*ODM_WT_EDIT*/
 struct firmware_cache {
 	/* firmware_buf instance will be added into the below list */
 	spinlock_t lock;
@@ -382,10 +385,19 @@ static void fw_free_buf(struct firmware_buf *buf)
 static char fw_path_para[256];
 static const char * const fw_path[] = {
 	fw_path_para,
+#ifdef VENDOR_EDIT
+	"/vendor/firmware",
+	"/system/vendor/firmware",
+	"/system/etc/firmware",
+#endif /* VENDOR_EDIT */
 	"/lib/firmware/updates/" UTS_RELEASE,
 	"/lib/firmware/updates",
 	"/lib/firmware/" UTS_RELEASE,
 	"/lib/firmware"
+//#ifdef ODM_WT_EDIT
+	"/vendor/firmware/" UTS_RELEASE,
+//#endif/*ODM_WT_EDIT*/
+	"/vendor/firmware"
 };
 
 /*
@@ -395,9 +407,14 @@ static const char * const fw_path[] = {
  */
 module_param_string(path, fw_path_para, sizeof(fw_path_para), 0644);
 MODULE_PARM_DESC(path, "customized firmware image search path with a higher priority than default path");
-
+#ifdef VENDOR_EDIT
+static int fw_get_filesystem_firmware(struct device *device,
+					struct firmware_buf *buf,
+					unsigned int opt_flags)
+#else
 static int
 fw_get_filesystem_firmware(struct device *device, struct firmware_buf *buf)
+#endif /*VENDOR_EDIT*/
 {
 	loff_t size;
 	int i, len;
@@ -405,7 +422,12 @@ fw_get_filesystem_firmware(struct device *device, struct firmware_buf *buf)
 	char *path;
 	enum kernel_read_file_id id = READING_FIRMWARE;
 	size_t msize = INT_MAX;
-
+	#ifdef VENDOR_EDIT
+	if(opt_flags & FW_OPT_COMPARE) {
+		pr_err("%s opt_flags get FW_OPT_COMPARE!\n", __func__);
+		return rc;
+	}
+	#endif/*VENDOR_EDIT*/
 	/* Already populated data member means we're loading into a buffer */
 	if (buf->data) {
 		id = READING_FIRMWARE_PREALLOC_BUFFER;
@@ -1039,6 +1061,11 @@ static int _request_firmware_load(struct firmware_priv *fw_priv,
 	struct device *f_dev = &fw_priv->dev;
 	struct firmware_buf *buf = fw_priv->buf;
 
+//#ifdef ODM_WT_EDIT
+	char *envp[2]={"FwUp=compare", NULL};
+        dev_dbg(f_dev, "temp printk %s\n", envp[1]);
+//#endif/*ODM_WT_EDIT*/
+
 	/* fall back on userspace loading */
 	if (!buf->data)
 		buf->is_paged_buf = true;
@@ -1059,7 +1086,16 @@ static int _request_firmware_load(struct firmware_priv *fw_priv,
 		buf->need_uevent = true;
 		dev_set_uevent_suppress(f_dev, false);
 		dev_dbg(f_dev, "firmware: requesting %s\n", buf->fw_id);
+#ifdef VENDOR_EDIT
+		if (opt_flags & FW_OPT_COMPARE) {
+			kobject_uevent_env(&fw_priv->dev.kobj, KOBJ_CHANGE,envp);
+		} else {
+			kobject_uevent(&fw_priv->dev.kobj, KOBJ_ADD);
+		}
+#else
 		kobject_uevent(&fw_priv->dev.kobj, KOBJ_ADD);
+#endif/*VENDOR_EDIT*/
+
 	} else {
 		timeout = MAX_JIFFY_OFFSET;
 	}
@@ -1232,8 +1268,11 @@ _request_firmware(const struct firmware **firmware_p, const char *name,
 					opt_flags);
 	if (ret <= 0) /* error or already assigned */
 		goto out;
-
+#ifdef VENDOR_EDIT
+	ret = fw_get_filesystem_firmware(device, fw->priv, opt_flags);
+#else
 	ret = fw_get_filesystem_firmware(device, fw->priv);
+#endif/*VENDOR_EDIT*/
 	if (ret) {
 		if (!(opt_flags & FW_OPT_NO_WARN))
 			dev_dbg(device,
@@ -1292,6 +1331,22 @@ request_firmware(const struct firmware **firmware_p, const char *name,
 	return ret;
 }
 EXPORT_SYMBOL(request_firmware);
+
+//#ifdef ODM_WT_EDIT
+int request_firmware_select(const struct firmware **firmware_p, const char *name,
+		 struct device *device)
+{
+	int ret;
+
+	/* Need to pin this module until return */
+	__module_get(THIS_MODULE);
+	ret = _request_firmware(firmware_p, name, device, NULL, 0,
+				FW_OPT_UEVENT | FW_OPT_FALLBACK | FW_OPT_COMPARE);
+	module_put(THIS_MODULE);
+	return ret;
+}
+EXPORT_SYMBOL(request_firmware_select);
+//#endif/*ODM_WT_EDIT*/
 
 /**
  * request_firmware_direct: - load firmware directly without usermode helper

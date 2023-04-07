@@ -85,3 +85,9 @@ obj-$(CONFIG_VF610_ADC) += vf610_adc.o
 obj-$(CONFIG_VIPERBOARD_ADC) += viperboard_adc.o
 xilinx-xadc-y := xilinx-xadc-core.o xilinx-xadc-events.o
 obj-$(CONFIG_XILINX_XADC) += xilinx-xadc.o
+
+ifeq ($(SHIPPING_API_LEVEL), 28)
+ccflags-y += -DSHIPPING_API_LEVEL=28
+else
+ccflags-y += -DSHIPPING_API_LEVEL=29
+endif

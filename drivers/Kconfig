@@ -9,8 +9,6 @@ source "drivers/bus/Kconfig"
 
 source "drivers/connector/Kconfig"
 
-source "drivers/gnss/Kconfig"
-
 source "drivers/mtd/Kconfig"
 
 source "drivers/of/Kconfig"
@@ -201,8 +199,6 @@ source "drivers/thunderbolt/Kconfig"
 
 source "drivers/android/Kconfig"
 
-source "drivers/gpu/trace/Kconfig"
-
 source "drivers/nvdimm/Kconfig"
 
 source "drivers/dax/Kconfig"
@@ -219,10 +215,17 @@ source "drivers/fsi/Kconfig"
 
 source "drivers/tee/Kconfig"
 
+#ifdef VENDOR_EDIT
+source "drivers/qihoo/Kconfig"
+#endif /* VENDOR_EDIT */
+
 source "drivers/mux/Kconfig"
 
 source "drivers/sensors/Kconfig"
 
 source "drivers/esoc/Kconfig"
+
+source "drivers/nfc/pn553-i2c/Kconfig"
+source "drivers/nfc/p73-spi/Kconfig"
 
 endmenu

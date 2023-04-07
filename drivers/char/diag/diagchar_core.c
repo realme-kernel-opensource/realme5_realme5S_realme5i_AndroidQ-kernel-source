@@ -22,7 +22,6 @@
 #include <linux/sched.h>
 #include <linux/ratelimit.h>
 #include <linux/timer.h>
-#include <linux/jiffies.h>
 #include <linux/sched/task.h>
 #ifdef CONFIG_DIAG_OVER_USB
 #include <linux/usb/usbdiag.h>
@@ -779,7 +778,10 @@ int diag_cmd_add_reg(struct diag_cmd_reg_entry_t *new_entry, uint8_t proc,
 		     int pid)
 {
 	struct diag_cmd_reg_t *new_item = NULL;
-
+#ifdef ODM_WT_EDIT
+	struct diag_cmd_reg_t *temp_item = NULL;
+	struct diag_cmd_reg_entry_t *temp_entry = NULL;
+#endif
 	if (!new_entry) {
 		pr_err("diag: In %s, invalid new entry\n", __func__);
 		return -EINVAL;
@@ -805,6 +807,20 @@ int diag_cmd_add_reg(struct diag_cmd_reg_entry_t *new_entry, uint8_t proc,
 	INIT_LIST_HEAD(&new_item->link);
 
 	mutex_lock(&driver->cmd_reg_mutex);
+#ifdef ODM_WT_EDIT
+	if(proc > 0) {
+		temp_entry = diag_cmd_search(new_entry, proc);
+		if (temp_entry) {
+			temp_item = container_of(temp_entry, struct diag_cmd_reg_t, entry);
+			if (temp_item) {
+				temp_item->pid = pid;
+				mutex_unlock(&driver->cmd_reg_mutex);
+				kfree(new_item);
+				return 0;
+			}
+		}
+	}
+#endif
 	list_add_tail(&new_item->link, &driver->cmd_reg_list);
 	driver->cmd_reg_count++;
 	diag_cmd_invalidate_polling(DIAG_CMD_ADD);
@@ -3075,7 +3091,7 @@ long diagchar_ioctl(struct file *filp,
 static int diag_process_apps_data_hdlc(unsigned char *buf, int len,
 				       int pkt_type)
 {
-	int err = 0, wait_err = 0;
+	int err = 0;
 	int ret = PKT_DROP;
 	struct diag_apps_data_t *data = &hdlc_data;
 	struct diag_send_desc_type send = { NULL, NULL, DIAG_STATE_START, 0 };
@@ -3106,15 +3122,8 @@ static int diag_process_apps_data_hdlc(unsigned char *buf, int len,
 	send.terminate = 1;
 
 wait_for_buffer:
-	wait_err = wait_event_interruptible_timeout(driver->hdlc_wait_q,
-			(data->flushed == 0),
-			msecs_to_jiffies(PKT_PROCESS_TIMEOUT));
-	if (wait_err <= 0) {
-		DIAG_LOG(DIAG_DEBUG_USERSPACE,
-		"diag: Timeout while waiting for hdlc buffer to be flushed, err: %d\n",
-		wait_err);
-		return PKT_DROP;
-	}
+	wait_event_interruptible(driver->hdlc_wait_q,
+			(data->flushed == 0));
 	spin_lock_irqsave(&driver->diagmem_lock, flags);
 	if (data->flushed) {
 		spin_unlock_irqrestore(&driver->diagmem_lock, flags);
@@ -3165,16 +3174,8 @@ wait_for_buffer:
 			goto fail_free_buf;
 		}
 wait_for_agg_buff:
-		wait_err = wait_event_interruptible_timeout(driver->hdlc_wait_q,
-				(data->flushed == 0),
-				msecs_to_jiffies(PKT_PROCESS_TIMEOUT));
-		if (wait_err <= 0) {
-			DIAG_LOG(DIAG_DEBUG_USERSPACE,
-			"diag: Timeout while waiting for hdlc aggregation buffer to be flushed, err: %d\n",
-			wait_err);
-			return PKT_DROP;
-		}
-
+		wait_event_interruptible(driver->hdlc_wait_q,
+			(data->flushed == 0));
 		spin_lock_irqsave(&driver->diagmem_lock, flags);
 		if (data->flushed) {
 			spin_unlock_irqrestore(&driver->diagmem_lock, flags);
@@ -3232,7 +3233,7 @@ fail_ret:
 static int diag_process_apps_data_non_hdlc(unsigned char *buf, int len,
 					   int pkt_type)
 {
-	int err = 0, wait_err = 0;
+	int err = 0;
 	int ret = PKT_DROP;
 	struct diag_pkt_frame_t header;
 	struct diag_apps_data_t *data = &non_hdlc_data;
@@ -3250,16 +3251,8 @@ static int diag_process_apps_data_non_hdlc(unsigned char *buf, int len,
 		return -EIO;
 	}
 wait_for_buffer:
-	wait_err = wait_event_interruptible_timeout(driver->hdlc_wait_q,
-					(data->flushed == 0),
-					msecs_to_jiffies(PKT_PROCESS_TIMEOUT));
-	if (wait_err <= 0) {
-		DIAG_LOG(DIAG_DEBUG_USERSPACE,
-		"diag: Timeout while waiting for non-hdlc buffer to be flushed, err: %d\n",
-		wait_err);
-		return PKT_DROP;
-	}
-
+	wait_event_interruptible(driver->hdlc_wait_q,
+			(data->flushed == 0));
 	spin_lock_irqsave(&driver->diagmem_lock, flags);
 	if (data->flushed) {
 		spin_unlock_irqrestore(&driver->diagmem_lock, flags);
@@ -3757,13 +3750,13 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 		mutex_lock(&driver->md_session_lock);
 		session_info = diag_md_session_get_peripheral(DIAG_LOCAL_PROC,
 								APPS_DATA);
+		if (!session_info)
+			mutex_unlock(&driver->md_session_lock);
 		COPY_USER_SPACE_OR_ERR(buf, data_type, sizeof(int));
 		if (ret == -EFAULT) {
 			mutex_unlock(&driver->md_session_lock);
-			goto end;
+			goto exit;
 		}
-		if (!session_info)
-			mutex_unlock(&driver->md_session_lock);
 		write_len = diag_copy_to_user_msg_mask(buf + ret, count,
 						       session_info);
 		if (session_info)
@@ -3786,7 +3779,7 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 		COPY_USER_SPACE_OR_ERR(buf, data_type, 4);
 		if (ret == -EFAULT) {
 			mutex_unlock(&driver->md_session_lock);
-			goto end;
+			goto exit;
 		}
 		if (session_info && session_info->event_mask &&
 		    session_info->event_mask->ptr) {
@@ -3795,7 +3788,7 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 					session_info->event_mask->mask_len);
 			if (ret == -EFAULT) {
 				mutex_unlock(&driver->md_session_lock);
-				goto end;
+				goto exit;
 			}
 		} else {
 			COPY_USER_SPACE_OR_ERR(buf + sizeof(int),
@@ -3803,7 +3796,7 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 						event_mask.mask_len);
 			if (ret == -EFAULT) {
 				mutex_unlock(&driver->md_session_lock);
-				goto end;
+				goto exit;
 			}
 		}
 		mutex_unlock(&driver->md_session_lock);
@@ -3820,13 +3813,15 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 		mutex_lock(&driver->md_session_lock);
 		session_info = diag_md_session_get_peripheral(DIAG_LOCAL_PROC,
 								APPS_DATA);
-		COPY_USER_SPACE_OR_ERR(buf, data_type, sizeof(int));
-		if (ret == -EFAULT) {
-			mutex_unlock(&driver->md_session_lock);
-			goto end;
-		}
 		if (!session_info)
 			mutex_unlock(&driver->md_session_lock);
+		COPY_USER_SPACE_OR_ERR(buf, data_type, sizeof(int));
+		if (ret == -EFAULT) {
+			if ((session_info))
+				mutex_unlock(&driver->md_session_lock);
+			goto exit;
+		}
+
 		write_len = diag_copy_to_user_log_mask(buf + ret, count,
 						       session_info);
 		if (session_info)
@@ -4290,7 +4285,7 @@ static void diag_debug_init(void)
 	 * to be logged to IPC
 	 */
 	diag_debug_mask = DIAG_DEBUG_PERIPHERALS | DIAG_DEBUG_DCI |
-		DIAG_DEBUG_MHI | DIAG_DEBUG_USERSPACE | DIAG_DEBUG_BRIDGE;
+				DIAG_DEBUG_USERSPACE | DIAG_DEBUG_BRIDGE;
 }
 #else
 static void diag_debug_init(void)
@@ -4363,8 +4358,7 @@ static int diagchar_setup_cdev(dev_t devno)
 	if (!driver->diag_dev)
 		return -EIO;
 
-	driver->diag_dev->power.wakeup = wakeup_source_register(driver->diag_dev,
-								"DIAG_WS");
+	driver->diag_dev->power.wakeup = wakeup_source_register("DIAG_WS");
 	return 0;
 
 }

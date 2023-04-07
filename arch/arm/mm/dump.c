@@ -21,7 +21,6 @@
 #include <asm/fixmap.h>
 #include <asm/memory.h>
 #include <asm/pgtable.h>
-#include <asm/highmem.h>
 
 struct addr_marker {
 	unsigned long start_address;
@@ -29,12 +28,7 @@ struct addr_marker {
 };
 
 static struct addr_marker address_markers[] = {
-#ifndef CONFIG_MODULES_USE_VMALLOC
 	{ MODULES_VADDR,	"Modules" },
-#endif
-#ifdef CONFIG_HIGHMEM
-	{ PKMAP_BASE,		"Page kmap" },
-#endif
 	{ PAGE_OFFSET,		"Kernel Mapping" },
 	{ 0,			"vmalloc() Area" },
 	{ VMALLOC_END,		"vmalloc() End" },
@@ -392,9 +386,7 @@ static int ptdump_init(void)
 			for (j = 0; j < pg_level[i].num; j++)
 				pg_level[i].mask |= pg_level[i].bits[j].mask;
 
-	i = 1 + !IS_ENABLED(CONFIG_MODULES_USE_VMALLOC) +
-		!!IS_ENABLED(CONFIG_HIGHMEM);
-	address_markers[i].start_address = VMALLOC_START;
+	address_markers[2].start_address = VMALLOC_START;
 
 	pe = debugfs_create_file("kernel_page_tables", 0400, NULL, NULL,
 				 &ptdump_fops);

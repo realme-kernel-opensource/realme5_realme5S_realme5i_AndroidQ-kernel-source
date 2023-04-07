@@ -32,7 +32,11 @@ source "fs/gfs2/Kconfig"
 source "fs/ocfs2/Kconfig"
 source "fs/btrfs/Kconfig"
 source "fs/nilfs2/Kconfig"
-source "fs/f2fs/Kconfig"
+#ifdef VENDOR_EDIT
+source "fs/of2fs/Kconfig"
+#else
+#source "fs/f2fs/Kconfig"
+#endif
 
 config FS_DAX
 	bool "Direct Access (DAX) support"
@@ -97,8 +101,6 @@ config MANDATORY_FILE_LOCKING
 
 source "fs/crypto/Kconfig"
 
-source "fs/verity/Kconfig"
-
 source "fs/notify/Kconfig"
 
 source "fs/quota/Kconfig"
@@ -106,7 +108,6 @@ source "fs/quota/Kconfig"
 source "fs/autofs4/Kconfig"
 source "fs/fuse/Kconfig"
 source "fs/overlayfs/Kconfig"
-source "fs/incfs/Kconfig"
 
 menu "Caches"
 
@@ -311,11 +312,14 @@ endif # NETWORK_FILESYSTEMS
 
 source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
-source "fs/unicode/Kconfig"
 
 config FILE_TABLE_DEBUG
 	bool "Enable FILE_TABLE_DEBUG"
 	help
 	  This option enables debug of the open files using a global filetable
+
+#ifdef VENDOR_EDIT
+source "fs/exfat/Kconfig"
+#endif /*VENDOR_EDIT*/
 
 endmenu

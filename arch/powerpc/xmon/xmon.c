@@ -465,10 +465,8 @@ static int xmon_core(struct pt_regs *regs, int fromipi)
 	local_irq_save(flags);
 	hard_irq_disable();
 
-	if (!fromipi) {
-		tracing_enabled = tracing_is_on();
-		tracing_off();
-	}
+	tracing_enabled = tracing_is_on();
+	tracing_off();
 
 	bp = in_breakpoint_table(regs->nip, &offset);
 	if (bp != NULL) {
@@ -1830,14 +1828,15 @@ static void dump_300_sprs(void)
 
 	printf("pidr   = %.16lx  tidr  = %.16lx\n",
 		mfspr(SPRN_PID), mfspr(SPRN_TIDR));
-	printf("psscr  = %.16lx\n",
-		hv ? mfspr(SPRN_PSSCR) : mfspr(SPRN_PSSCR_PR));
+	printf("asdr   = %.16lx  psscr = %.16lx\n",
+		mfspr(SPRN_ASDR), hv ? mfspr(SPRN_PSSCR)
+					: mfspr(SPRN_PSSCR_PR));
 
 	if (!hv)
 		return;
 
-	printf("ptcr   = %.16lx  asdr  = %.16lx\n",
-		mfspr(SPRN_PTCR), mfspr(SPRN_ASDR));
+	printf("ptcr   = %.16lx\n",
+		mfspr(SPRN_PTCR));
 #endif
 }
 
@@ -2437,16 +2436,13 @@ static void dump_pacas(void)
 static void dump_one_xive(int cpu)
 {
 	unsigned int hwid = get_hard_smp_processor_id(cpu);
-	bool hv = cpu_has_feature(CPU_FTR_HVMODE);
 
-	if (hv) {
-		opal_xive_dump(XIVE_DUMP_TM_HYP, hwid);
-		opal_xive_dump(XIVE_DUMP_TM_POOL, hwid);
-		opal_xive_dump(XIVE_DUMP_TM_OS, hwid);
-		opal_xive_dump(XIVE_DUMP_TM_USER, hwid);
-		opal_xive_dump(XIVE_DUMP_VP, hwid);
-		opal_xive_dump(XIVE_DUMP_EMU_STATE, hwid);
-	}
+	opal_xive_dump(XIVE_DUMP_TM_HYP, hwid);
+	opal_xive_dump(XIVE_DUMP_TM_POOL, hwid);
+	opal_xive_dump(XIVE_DUMP_TM_OS, hwid);
+	opal_xive_dump(XIVE_DUMP_TM_USER, hwid);
+	opal_xive_dump(XIVE_DUMP_VP, hwid);
+	opal_xive_dump(XIVE_DUMP_EMU_STATE, hwid);
 
 	if (setjmp(bus_error_jmp) != 0) {
 		catch_memory_errors = 0;
@@ -3292,7 +3288,7 @@ void dump_segments(void)
 
 	printf("sr0-15 =");
 	for (i = 0; i < 16; ++i)
-		printf(" %x", mfsrin(i << 28));
+		printf(" %x", mfsrin(i));
 	printf("\n");
 }
 #endif

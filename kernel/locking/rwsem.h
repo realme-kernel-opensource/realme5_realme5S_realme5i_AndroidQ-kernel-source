@@ -121,12 +121,26 @@ static inline bool rwsem_list_add_per_prio(struct rwsem_waiter *waiter_in,
 		sem->m_count = 0;
 		return true;
 	}
+#ifdef VENDOR_EDIT
+	if (sysctl_uifirst_enabled) {
+		if (rwsem_list_add(waiter_in->task, &waiter_in->list, &sem->wait_list, sem)) {
+			return &waiter_in->list == head->next;
+		}
+	}
+#endif
 
 	if (waiter_in->task->prio < DEFAULT_PRIO
 		&& sem->m_count < RWSEM_MAX_PREEMPT_ALLOWED) {
 
 		list_for_each(pos, head) {
 			waiter = list_entry(pos, struct rwsem_waiter, list);
+#ifdef VENDOR_EDIT
+			if (sysctl_uifirst_enabled && waiter_in->task->prio > MAX_RT_PRIO &&
+				(waiter->task->static_ux || atomic64_read(&waiter->task->dynamic_ux))) {
+				continue;
+			}
+#endif
+
 			if (waiter->task->prio > waiter_in->task->prio) {
 				list_add(&waiter_in->list, pos->prev);
 				sem->m_count++;

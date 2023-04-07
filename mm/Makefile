@@ -105,3 +105,15 @@ obj-$(CONFIG_HARDENED_USERCOPY) += usercopy.o
 obj-$(CONFIG_PERCPU_STATS) += percpu-stats.o
 obj-$(CONFIG_HMM) += hmm.o
 obj-$(CONFIG_PROCESS_RECLAIM)	+= process_reclaim.o
+#if defined(VENDOR_EDIT) && defined(CONFIG_PROCESS_RECLAIM)
+obj-$(CONFIG_PROCESS_RECLAIM) += process_mm_reclaim.o
+#endif /*defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)*/
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+obj-$(CONFIG_VIRTUAL_RESERVE_MEMORY) += resmap_account.o
+#endif /*defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)*/
+#ifdef VENDOR_EDIT
+obj-$(CONFIG_OPPO_MEM_MONITOR) += memory_monitor.o
+#endif /*VENDOR_EDIT*/
+#if defined(VENDOR_EDIT) && defined(CONFIG_PROCESS_RECLAIM)
+obj-$(CONFIG_PROCESS_RECLAIM) += process_mm_reclaim.o
+#endif /*defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)*/

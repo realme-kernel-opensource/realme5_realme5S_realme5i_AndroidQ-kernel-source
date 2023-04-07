@@ -18,7 +18,6 @@
 
 #include <linux/init.h>
 #include <linux/threads.h>
-#include <linux/cpu.h>
 
 /**
  * struct cpu_operations - Callback operations for hotplugging CPUs.
@@ -69,7 +68,7 @@ int __init cpu_read_ops(int cpu);
 
 static inline void __init cpu_read_bootcpu_ops(void)
 {
-	cpu_read_ops(logical_bootcpu_id);
+	cpu_read_ops(0);
 }
 
 #endif /* ifndef __ASM_CPU_OPS_H */

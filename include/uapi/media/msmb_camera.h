@@ -1,6 +1,10 @@
 #ifndef __UAPI_LINUX_MSMB_CAMERA_H
 #define __UAPI_LINUX_MSMB_CAMERA_H
 
+#ifndef VENDOR_EDIT
+#define VENDOR_EDIT
+#endif
+
 #include <linux/videodev2.h>
 #include <linux/types.h>
 #include <linux/ioctl.h>
@@ -57,7 +61,11 @@
 #define MSM_CAMERA_SUBDEV_EXT          (MSM_CAMERA_SUBDEV_BASE + 19)
 #define MSM_CAMERA_SUBDEV_TOF          (MSM_CAMERA_SUBDEV_BASE + 20)
 #define MSM_CAMERA_SUBDEV_LASER_LED    (MSM_CAMERA_SUBDEV_BASE + 21)
+#ifndef VENDOR_EDIT
 #define MSM_MAX_CAMERA_SENSORS  5
+#else
+#define MSM_MAX_CAMERA_SENSORS  8
+#endif
 
 /* The below macro is defined to put an upper limit on maximum
  * number of buffer requested per stream. In case of extremely

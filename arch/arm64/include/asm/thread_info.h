@@ -44,9 +44,6 @@ struct thread_info {
 	u64			ttbr0;		/* saved TTBR0_EL1 */
 #endif
 	int			preempt_count;	/* 0 => preemptable, <0 => bug */
-#ifdef CONFIG_SHADOW_CALL_STACK
-	void			*shadow_call_stack;
-#endif
 };
 
 #define INIT_THREAD_INFO(tsk)						\
@@ -97,8 +94,7 @@ void arch_setup_new_exec(void);
 #define TIF_SINGLESTEP		21
 #define TIF_32BIT		22	/* 32bit process */
 #define TIF_SSBD		23	/* Wants SSB mitigation */
-#define TIF_TAGGED_ADDR		24	/* Allow tagged user addresses */
-#define TIF_MM_RELEASED		25
+#define TIF_MM_RELEASED		24
 
 #define _TIF_SIGPENDING		(1 << TIF_SIGPENDING)
 #define _TIF_NEED_RESCHED	(1 << TIF_NEED_RESCHED)

@@ -41,6 +41,14 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 		mmc_hostname(host), present, present?"INSERT":"REMOVAL");
 
 	host->trigger_card_event = true;
+#ifdef VENDOR_EDIT
+	host->detect_change_retry = 5;
+#endif /* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+        host->card_stuck_in_programing_status = false;
+#endif /* VENDOR_EDIT */
+
 	mmc_detect_change(host, msecs_to_jiffies(200));
 
 	return IRQ_HANDLED;
@@ -131,27 +139,6 @@ int mmc_gpio_request_ro(struct mmc_host *host, unsigned int gpio)
 	return 0;
 }
 EXPORT_SYMBOL(mmc_gpio_request_ro);
-
-void mmc_gpiod_free_cd_irq(struct mmc_host *host)
-{
-	devm_free_irq(host->parent, host->slot.cd_irq, host);
-}
-EXPORT_SYMBOL(mmc_gpiod_free_cd_irq);
-
-void mmc_gpiod_restore_cd_irq(struct mmc_host *host)
-{
-	struct mmc_gpio *ctx = host->slot.handler_priv;
-	int irq = host->slot.cd_irq;
-
-	if (irq >= 0) {
-		devm_request_threaded_irq(host->parent, irq,
-			NULL, ctx->cd_gpio_isr,
-			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
-			IRQF_ONESHOT,
-			ctx->cd_label, host);
-	}
-}
-EXPORT_SYMBOL(mmc_gpiod_restore_cd_irq);
 
 void mmc_gpiod_request_cd_irq(struct mmc_host *host)
 {

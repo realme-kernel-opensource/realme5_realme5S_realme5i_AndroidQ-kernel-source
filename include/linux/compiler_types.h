@@ -158,10 +158,6 @@ struct ftrace_likely_data {
 #define __malloc
 #endif
 
-#ifndef __noscs
-# define __noscs
-#endif
-
 /*
  * Allow us to avoid 'defined but not used' warnings on functions and data,
  * as well as force them to be emitted to the assembly file.
@@ -232,10 +228,6 @@ struct ftrace_likely_data {
 
 #ifndef __latent_entropy
 # define __latent_entropy
-#endif
-
-#ifndef __copy
-# define __copy(symbol)
 #endif
 
 #ifndef __randomize_layout

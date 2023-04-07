@@ -245,7 +245,6 @@ struct etm_ctx {
 
 static struct etm_ctx *etm[NR_CPUS];
 static int cnt;
-static bool hibernation_freeze;
 
 static struct clk *clock[NR_CPUS];
 
@@ -1438,8 +1437,7 @@ void msm_jtag_etm_save_state(void)
 
 	cpu = raw_smp_processor_id();
 
-	if (!etm[cpu] || etm[cpu]->save_restore_disabled
-				|| hibernation_freeze)
+	if (!etm[cpu] || etm[cpu]->save_restore_disabled)
 		return;
 
 	if (etm[cpu]->save_restore_enabled) {
@@ -1457,8 +1455,7 @@ void msm_jtag_etm_restore_state(void)
 
 	cpu = raw_smp_processor_id();
 
-	if (!etm[cpu] || etm[cpu]->save_restore_disabled
-				|| hibernation_freeze)
+	if (!etm[cpu] || etm[cpu]->save_restore_disabled)
 		return;
 
 	/*
@@ -1726,54 +1723,6 @@ static int jtag_mm_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static void msm_jtag_etm_save_state_hib(void *unused_info)
-{
-	msm_jtag_etm_save_state();
-}
-
-static void msm_jtag_etm_restore_state_hib(void *unused_info)
-{
-	msm_jtag_etm_restore_state();
-}
-
-static int jtag_mm_freeze(struct device *dev)
-{
-	int cpu;
-
-	if (hibernation_freeze)
-		return 0;
-	get_online_cpus();
-	on_each_cpu(msm_jtag_etm_save_state_hib,
-				NULL, true);
-	for_each_online_cpu(cpu)
-		clk_disable_unprepare(clock[cpu]);
-	put_online_cpus();
-	hibernation_freeze = true;
-	return 0;
-}
-
-static int jtag_mm_restore(struct device *dev)
-{
-	int cpu;
-
-	if (!hibernation_freeze)
-		return 0;
-	get_online_cpus();
-	for_each_online_cpu(cpu)
-		clk_prepare_enable(clock[cpu]);
-	on_each_cpu(msm_jtag_etm_restore_state_hib,
-					NULL, true);
-	put_online_cpus();
-	hibernation_freeze = false;
-	return 0;
-}
-
-static const struct dev_pm_ops jtag_mm_pm_ops = {
-	.freeze = jtag_mm_freeze,
-	.restore = jtag_mm_restore,
-	.thaw = jtag_mm_restore,
-};
-
 static const struct of_device_id msm_qdss_mm_match[] = {
 	{ .compatible = "qcom,jtagv8-mm"},
 	{}
@@ -1786,7 +1735,6 @@ static struct platform_driver jtag_mm_driver = {
 		.name   = "msm-jtagv8-mm",
 		.owner	= THIS_MODULE,
 		.of_match_table	= msm_qdss_mm_match,
-		.pm = &jtag_mm_pm_ops,
 		},
 };
 

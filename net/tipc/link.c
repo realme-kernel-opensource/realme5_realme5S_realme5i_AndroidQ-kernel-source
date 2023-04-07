@@ -157,7 +157,6 @@ struct tipc_link {
 	struct {
 		u16 len;
 		u16 limit;
-		struct sk_buff *target_bskb;
 	} backlog[5];
 	u16 snd_nxt;
 	u16 last_retransm;
@@ -811,37 +810,22 @@ static int link_schedule_user(struct tipc_link *l, struct tipc_msg *hdr)
  */
 void link_prepare_wakeup(struct tipc_link *l)
 {
-	struct sk_buff_head *wakeupq = &l->wakeupq;
-	struct sk_buff_head *inputq = l->inputq;
 	struct sk_buff *skb, *tmp;
-	struct sk_buff_head tmpq;
-	int avail[5] = {0,};
-	int imp = 0;
+	int imp, i = 0;
 
-	__skb_queue_head_init(&tmpq);
-
-	for (; imp <= TIPC_SYSTEM_IMPORTANCE; imp++)
-		avail[imp] = l->backlog[imp].limit - l->backlog[imp].len;
-
-	skb_queue_walk_safe(wakeupq, skb, tmp) {
+	skb_queue_walk_safe(&l->wakeupq, skb, tmp) {
 		imp = TIPC_SKB_CB(skb)->chain_imp;
-		if (avail[imp] <= 0)
-			continue;
-		avail[imp]--;
-		__skb_unlink(skb, wakeupq);
-		__skb_queue_tail(&tmpq, skb);
+		if (l->backlog[imp].len < l->backlog[imp].limit) {
+			skb_unlink(skb, &l->wakeupq);
+			skb_queue_tail(l->inputq, skb);
+		} else if (i++ > 10) {
+			break;
+		}
 	}
-
-	spin_lock_bh(&inputq->lock);
-	skb_queue_splice_tail(&tmpq, inputq);
-	spin_unlock_bh(&inputq->lock);
-
 }
 
 void tipc_link_reset(struct tipc_link *l)
 {
-	u32 imp;
-
 	l->peer_session = ANY_SESSION;
 	l->session++;
 	l->mtu = l->advertised_mtu;
@@ -849,10 +833,11 @@ void tipc_link_reset(struct tipc_link *l)
 	__skb_queue_purge(&l->deferdq);
 	skb_queue_splice_init(&l->wakeupq, l->inputq);
 	__skb_queue_purge(&l->backlogq);
-	for (imp = 0; imp <= TIPC_SYSTEM_IMPORTANCE; imp++) {
-		l->backlog[imp].len = 0;
-		l->backlog[imp].target_bskb = NULL;
-	}
+	l->backlog[TIPC_LOW_IMPORTANCE].len = 0;
+	l->backlog[TIPC_MEDIUM_IMPORTANCE].len = 0;
+	l->backlog[TIPC_HIGH_IMPORTANCE].len = 0;
+	l->backlog[TIPC_CRITICAL_IMPORTANCE].len = 0;
+	l->backlog[TIPC_SYSTEM_IMPORTANCE].len = 0;
 	kfree_skb(l->reasm_buf);
 	kfree_skb(l->failover_reasm_skb);
 	l->reasm_buf = NULL;
@@ -891,7 +876,7 @@ int tipc_link_xmit(struct tipc_link *l, struct sk_buff_head *list,
 	u16 bc_ack = l->bc_rcvlink->rcv_nxt - 1;
 	struct sk_buff_head *transmq = &l->transmq;
 	struct sk_buff_head *backlogq = &l->backlogq;
-	struct sk_buff *skb, *_skb, **tskb;
+	struct sk_buff *skb, *_skb, *bskb;
 	int pkt_cnt = skb_queue_len(list);
 	int rc = 0;
 
@@ -937,21 +922,19 @@ int tipc_link_xmit(struct tipc_link *l, struct sk_buff_head *list,
 			seqno++;
 			continue;
 		}
-		tskb = &l->backlog[imp].target_bskb;
-		if (tipc_msg_bundle(*tskb, hdr, mtu)) {
+		if (tipc_msg_bundle(skb_peek_tail(backlogq), hdr, mtu)) {
 			kfree_skb(__skb_dequeue(list));
 			l->stats.sent_bundled++;
 			continue;
 		}
-		if (tipc_msg_make_bundle(tskb, hdr, mtu, l->addr)) {
+		if (tipc_msg_make_bundle(&bskb, hdr, mtu, l->addr)) {
 			kfree_skb(__skb_dequeue(list));
-			__skb_queue_tail(backlogq, *tskb);
-			l->backlog[imp].len++;
+			__skb_queue_tail(backlogq, bskb);
+			l->backlog[msg_importance(buf_msg(bskb))].len++;
 			l->stats.sent_bundled++;
 			l->stats.sent_bundles++;
 			continue;
 		}
-		l->backlog[imp].target_bskb = NULL;
 		l->backlog[imp].len += skb_queue_len(list);
 		skb_queue_splice_tail_init(list, backlogq);
 	}
@@ -966,7 +949,6 @@ void tipc_link_advance_backlog(struct tipc_link *l, struct sk_buff_head *xmitq)
 	u16 seqno = l->snd_nxt;
 	u16 ack = l->rcv_nxt - 1;
 	u16 bc_ack = l->bc_rcvlink->rcv_nxt - 1;
-	u32 imp;
 
 	while (skb_queue_len(&l->transmq) < l->window) {
 		skb = skb_peek(&l->backlogq);
@@ -977,10 +959,7 @@ void tipc_link_advance_backlog(struct tipc_link *l, struct sk_buff_head *xmitq)
 			break;
 		__skb_dequeue(&l->backlogq);
 		hdr = buf_msg(skb);
-		imp = msg_importance(hdr);
-		l->backlog[imp].len--;
-		if (unlikely(skb == l->backlog[imp].target_bskb))
-			l->backlog[imp].target_bskb = NULL;
+		l->backlog[msg_importance(hdr)].len--;
 		__skb_queue_tail(&l->transmq, skb);
 		__skb_queue_tail(xmitq, _skb);
 		TIPC_SKB_CB(skb)->ackers = l->ackers;
@@ -1086,7 +1065,7 @@ static bool tipc_data_input(struct tipc_link *l, struct sk_buff *skb,
 	default:
 		pr_warn("Dropping received illegal msg type\n");
 		kfree_skb(skb);
-		return true;
+		return false;
 	};
 }
 

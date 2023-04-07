@@ -2769,11 +2769,8 @@ int cmd_stat(int argc, const char **argv)
 			fprintf(output, "[ perf stat: executing run #%d ... ]\n",
 				run_idx + 1);
 
-		if (run_idx != 0)
-			perf_evlist__reset_prev_raw_counts(evsel_list);
-
 		status = run_perf_stat(argc, argv);
-		if (forever && status != -1 && !interval) {
+		if (forever && status != -1) {
 			print_counters(NULL, argc, argv);
 			perf_stat__reset_stats();
 		}

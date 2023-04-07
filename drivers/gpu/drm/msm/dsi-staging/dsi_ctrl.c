@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -81,7 +81,6 @@ static const struct of_device_id msm_dsi_of_match[] = {
 	{}
 };
 
-#ifdef CONFIG_DEBUG_FS
 static ssize_t debugfs_state_info_read(struct file *file,
 				       char __user *buff,
 				       size_t count,
@@ -202,11 +201,6 @@ static int dsi_ctrl_debugfs_init(struct dsi_ctrl *dsi_ctrl,
 	struct dentry *dir, *state_file, *reg_dump;
 	char dbg_name[DSI_DEBUG_NAME_LEN];
 
-	if (!dsi_ctrl || !parent) {
-		pr_err("Invalid params\n");
-		return -EINVAL;
-	}
-
 	dir = debugfs_create_dir(dsi_ctrl->name, parent);
 	if (IS_ERR_OR_NULL(dir)) {
 		rc = PTR_ERR(dir);
@@ -258,17 +252,6 @@ static int dsi_ctrl_debugfs_deinit(struct dsi_ctrl *dsi_ctrl)
 	debugfs_remove(dsi_ctrl->debugfs_root);
 	return 0;
 }
-#else
-static int dsi_ctrl_debugfs_init(struct dsi_ctrl *dsi_ctrl,
-					struct dentry *parent)
-{
-	return 0;
-}
-static int dsi_ctrl_debugfs_deinit(struct dsi_ctrl *dsi_ctrl)
-{
-	return 0;
-}
-#endif /* CONFIG_DEBUG_FS */
 
 static inline struct msm_gem_address_space*
 dsi_ctrl_get_aspace(struct dsi_ctrl *dsi_ctrl,
@@ -2023,7 +2006,7 @@ int dsi_ctrl_drv_init(struct dsi_ctrl *dsi_ctrl, struct dentry *parent)
 {
 	int rc = 0;
 
-	if (!dsi_ctrl) {
+	if (!dsi_ctrl || !parent) {
 		pr_err("Invalid params\n");
 		return -EINVAL;
 	}
@@ -2588,6 +2571,9 @@ static int _dsi_ctrl_setup_isr(struct dsi_ctrl *dsi_ctrl)
  */
 static void _dsi_ctrl_destroy_isr(struct dsi_ctrl *dsi_ctrl)
 {
+//#ifdef ODM_WT_EDIT
+uint32_t intr_idx = 0;
+//#endif /* ODM_WT_EDIT */
 	if (!dsi_ctrl || !dsi_ctrl->pdev || dsi_ctrl->irq_info.irq_num < 0)
 		return;
 
@@ -2595,7 +2581,18 @@ static void _dsi_ctrl_destroy_isr(struct dsi_ctrl *dsi_ctrl)
 		devm_free_irq(&dsi_ctrl->pdev->dev,
 				dsi_ctrl->irq_info.irq_num, dsi_ctrl);
 		dsi_ctrl->irq_info.irq_num = -1;
+//#ifdef ODM_WT_EDIT
+	for (intr_idx = 0; intr_idx < DSI_STATUS_INTERRUPT_COUNT; intr_idx++)
+	{
+		if (dsi_ctrl->irq_info.irq_stat_refcount[intr_idx] != 0)
+		{
+			pr_err("%s: intr_idx = %d, ref_count = %d\n", __func__, intr_idx, dsi_ctrl->irq_info.irq_stat_refcount[intr_idx]);
+			dsi_ctrl->irq_info.irq_stat_refcount[intr_idx] = 0;
+			dsi_ctrl->irq_info.irq_stat_mask = 0;
+		}
 	}
+//#endif /* ODM_WT_EDIT */
+		}
 }
 
 void dsi_ctrl_enable_status_interrupt(struct dsi_ctrl *dsi_ctrl,
@@ -2632,8 +2629,7 @@ void dsi_ctrl_disable_status_interrupt(struct dsi_ctrl *dsi_ctrl,
 {
 	unsigned long flags;
 
-	if (!dsi_ctrl || dsi_ctrl->irq_info.irq_num == -1 ||
-			intr_idx >= DSI_STATUS_INTERRUPT_COUNT)
+	if (!dsi_ctrl || intr_idx >= DSI_STATUS_INTERRUPT_COUNT)
 		return;
 
 	spin_lock_irqsave(&dsi_ctrl->irq_info.irq_lock, flags);
@@ -2645,7 +2641,8 @@ void dsi_ctrl_disable_status_interrupt(struct dsi_ctrl *dsi_ctrl,
 					dsi_ctrl->irq_info.irq_stat_mask);
 
 			/* don't need irq if no lines are enabled */
-			if (dsi_ctrl->irq_info.irq_stat_mask == 0)
+			if (dsi_ctrl->irq_info.irq_stat_mask == 0 &&
+				dsi_ctrl->irq_info.irq_num != -1)
 				disable_irq_nosync(dsi_ctrl->irq_info.irq_num);
 		}
 

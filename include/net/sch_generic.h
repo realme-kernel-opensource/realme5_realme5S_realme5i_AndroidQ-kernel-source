@@ -305,11 +305,6 @@ static inline struct Qdisc *qdisc_root(const struct Qdisc *qdisc)
 	return q;
 }
 
-static inline struct Qdisc *qdisc_root_bh(const struct Qdisc *qdisc)
-{
-	return rcu_dereference_bh(qdisc->dev_queue->qdisc);
-}
-
 static inline struct Qdisc *qdisc_root_sleeping(const struct Qdisc *qdisc)
 {
 	return qdisc->dev_queue->qdisc_sleeping;
@@ -570,6 +565,16 @@ static inline int qdisc_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	qdisc_calculate_pkt_len(skb, sch);
 	return sch->enqueue(skb, sch, to_free);
 }
+
+#ifdef VENDOR_EDIT
+//Add for limit speed function
+static inline int qdisc_enqueue_root(struct sk_buff *skb, struct Qdisc *sch,
+				      struct sk_buff **to_free)
+{
+    qdisc_skb_cb(skb)->pkt_len = skb->len;
+    return qdisc_enqueue(skb, sch, to_free) & NET_XMIT_MASK;
+}
+#endif /* VENDOR_EDIT */
 
 static inline bool qdisc_is_percpu_stats(const struct Qdisc *q)
 {

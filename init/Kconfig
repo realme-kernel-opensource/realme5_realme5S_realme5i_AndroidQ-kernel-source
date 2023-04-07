@@ -16,12 +16,6 @@ config DEFCONFIG_LIST
 	default "$ARCH_DEFCONFIG"
 	default "arch/$ARCH/defconfig"
 
-config TOOLS_SUPPORT_RELR
-	bool "Declare tool support for RELR"
-	# Prevent this from being enabled by default in allyesconfig or
-	# allmodconfig builds.
-	depends on !COMPILE_TEST
-
 config CONSTRUCTORS
 	bool
 	depends on !UML
@@ -557,15 +551,6 @@ config IKCONFIG_PROC
 	  This option enables access to the kernel configuration file
 	  through /proc/config.gz.
 
-config IKHEADERS
-	tristate "Enable kernel headers through /sys/kernel/kheaders.tar.xz"
-	depends on SYSFS
-	help
-	  This option enables access to the in-kernel headers that are generated during
-	  the build process. These can be used to build eBPF tracing programs,
-	  or similar programs.  If you build the headers as a module, a module called
-	  kheaders.ko is built which can be loaded on-demand to get access to headers.
-
 config LOG_BUF_SHIFT
 	int "Kernel log buffer size (16 => 64KB, 17 => 128KB)"
 	range 12 25
@@ -846,7 +831,6 @@ config FAIR_GROUP_SCHED
 config CFS_BANDWIDTH
 	bool "CPU bandwidth provisioning for FAIR_GROUP_SCHED"
 	depends on FAIR_GROUP_SCHED
-	depends on !SCHED_WALT
 	default n
 	help
 	  This option allows users to define CPU bandwidth rates (limits) for
@@ -1212,6 +1196,9 @@ endchoice
 config SYSCTL
 	bool
 
+config ANON_INODES
+	bool
+
 config HAVE_UID16
 	bool
 
@@ -1451,12 +1438,14 @@ config HAVE_FUTEX_CMPXCHG
 config EPOLL
 	bool "Enable eventpoll support" if EXPERT
 	default y
+	select ANON_INODES
 	help
 	  Disabling this option will cause the kernel to be built without
 	  support for epoll family of system calls.
 
 config SIGNALFD
 	bool "Enable signalfd() system call" if EXPERT
+	select ANON_INODES
 	default y
 	help
 	  Enable the signalfd() system call that allows to receive signals
@@ -1466,6 +1455,7 @@ config SIGNALFD
 
 config TIMERFD
 	bool "Enable timerfd() system call" if EXPERT
+	select ANON_INODES
 	default y
 	help
 	  Enable the timerfd() system call that allows to receive timer
@@ -1475,6 +1465,7 @@ config TIMERFD
 
 config EVENTFD
 	bool "Enable eventfd() system call" if EXPERT
+	select ANON_INODES
 	default y
 	help
 	  Enable the eventfd() system call that allows to receive both
@@ -1485,6 +1476,7 @@ config EVENTFD
 # syscall, maps, verifier
 config BPF_SYSCALL
 	bool "Enable bpf() system call"
+	select ANON_INODES
 	select BPF
 	default n
 	help
@@ -1529,6 +1521,7 @@ config ADVISE_SYSCALLS
 
 config USERFAULTFD
 	bool "Enable userfaultfd() system call"
+	select ANON_INODES
 	depends on MMU
 	help
 	  Enable the userfaultfd() system call that allows to intercept and
@@ -1587,6 +1580,7 @@ config PERF_EVENTS
 	bool "Kernel performance events and counters"
 	default y if PROFILING
 	depends on HAVE_PERF_EVENTS
+	select ANON_INODES
 	select IRQ_WORK
 	select SRCU
 	help
@@ -1646,8 +1640,20 @@ config VM_EVENT_COUNTERS
 	  on EXPERT systems.  /proc/vmstat will only show page counts
 	  if VM event counters are disabled.
 
+#ifndef VENDOR_EDIT
+#  * statistics whlie not open SLUB_DEBUG*/
+#config SLUB_DEBUG
+#	default y
+#	bool "Enable SLUB debugging support" if EXPERT
+#	depends on SLUB && SYSFS
+#	help
+#	  SLUB has extensive debug support features. Disabling these can
+#	  result in significant savings in code size. This also disables
+#	  SLUB sysfs support. /sys/slab will not exist and there will be
+#	  no support for cache validation etc.
+#else
 config SLUB_DEBUG
-	default y
+	default n
 	bool "Enable SLUB debugging support" if EXPERT
 	depends on SLUB && SYSFS
 	help
@@ -1655,6 +1661,15 @@ config SLUB_DEBUG
 	  result in significant savings in code size. This also disables
 	  SLUB sysfs support. /sys/slab will not exist and there will be
 	  no support for cache validation etc.
+config SLAB_STAT_DEBUG
+	default n
+	bool "Enable Collect SLUB debug information statisticst" if EXPERT
+	depends on !SLUB_DEBUG
+	help
+	  If open SLUB_DEBUG, there are more code and will degradte perforance.
+	  To get more slab details, such as the total objects, this option is
+	  to collect slab info on SLUB_DEBUG is closed.
+#endif /* VENDOR_EDIT */
 
 config SLUB_MEMCG_SYSFS_ON
 	default n
@@ -1824,7 +1839,12 @@ config HAVE_GENERIC_DMA_COHERENT
 config SLABINFO
 	bool
 	depends on PROC_FS
-	depends on SLAB || SLUB_DEBUG
+#ifndef VENDOR_EDIT
+#  * is enabled, /proc/slabinfo is created for getting more slab details.
+#	depends on SLAB || SLUB_DEBUG
+#else
+	depends on SLAB || SLUB_DEBUG || SLAB_STAT_DEBUG
+#endif
 	default y
 
 config RT_MUTEXES

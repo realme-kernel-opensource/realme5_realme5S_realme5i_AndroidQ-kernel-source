@@ -1925,7 +1925,7 @@ static int nfs_parse_devname(const char *dev_name,
 		/* kill possible hostname list: not supported */
 		comma = strchr(dev_name, ',');
 		if (comma != NULL && comma < end)
-			len = comma - dev_name;
+			*comma = 0;
 	}
 
 	if (len > maxnamlen)

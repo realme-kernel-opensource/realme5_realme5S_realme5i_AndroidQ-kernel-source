@@ -253,7 +253,11 @@ struct msm_mctl_post_proc_cmd {
 #define MSM_CAMERA_STROBE_FLASH_NONE 0
 #define MSM_CAMERA_STROBE_FLASH_XENON 1
 
+#ifdef ODM_WT_EDIT
+#define MSM_MAX_CAMERA_SENSORS  8
+#else
 #define MSM_MAX_CAMERA_SENSORS  5
+#endif /*ODM_WT_EDIT*/
 #define MAX_SENSOR_NAME 32
 #define MAX_CAM_NAME_SIZE 32
 #define MAX_ACT_MOD_NAME_SIZE 32

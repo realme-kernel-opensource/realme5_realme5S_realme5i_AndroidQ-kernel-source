@@ -43,6 +43,10 @@
 
 #include "peripheral-loader.h"
 
+#ifdef VENDOR_EDIT
+#include <soc/oppo/oppo_project.h>
+#endif
+
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
 static uint disable_restart_work;
@@ -856,6 +860,60 @@ struct subsys_device *find_subsys_device(const char *str)
 	return dev ? to_subsys(dev) : NULL;
 }
 EXPORT_SYMBOL(find_subsys_device);
+
+#ifdef VENDOR_EDIT
+int restart_sensor_subsys(void)
+{
+	struct subsys_device *subsys_adsp = (struct subsys_device *)subsystem_get("adsp");
+	struct subsys_device *subsys_slpi = (struct subsys_device *)subsystem_get("slpi");
+	struct subsys_device *subsys = NULL;
+	char * name_adsp = "adsp";
+	char * name_slpi = "slpi";
+	char * name = NULL;
+	int restart_level = 0;
+
+	pr_info("%s call\n", __func__);
+
+	if (subsys_slpi) {
+		subsys = subsys_slpi;
+		name = name_slpi;
+	} else if (subsys_adsp) {
+		subsys = subsys_adsp;
+		name = name_adsp;
+	} else {
+		return -ENODEV;
+	}
+
+	restart_level = subsys->restart_level;
+	subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+	if (subsystem_restart(name) == -ENODEV)
+		pr_err("%s: call %s failed\n", __func__,name);
+
+	subsys->restart_level = restart_level;
+	return 0;
+}
+EXPORT_SYMBOL(restart_sensor_subsys);
+#endif
+
+#ifdef VENDOR_EDIT
+int op_restart_modem(void)
+{
+	struct subsys_device *subsys = find_subsys_device("modem");
+	int restart_level;
+
+	if (!subsys)
+		return -ENODEV;
+	pr_err("%s\n", __func__);
+	restart_level = subsys->restart_level;
+	subsys->restart_level = RESET_SUBSYS_COUPLED;
+	if (subsystem_restart("modem") == -ENODEV)
+		pr_err("%s: SSR call modem failed\n", __func__);
+	subsys->restart_level = restart_level;
+	return 0;
+}
+EXPORT_SYMBOL(op_restart_modem);
+#endif /* VENDOR_EDIT */
 
 static int subsys_start(struct subsys_device *subsys)
 {
@@ -1827,6 +1885,12 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 	subsys->dev.bus = &subsys_bus_type;
 	subsys->dev.release = subsys_device_release;
 	subsys->notif_state = -1;
+
+#ifdef VENDOR_EDIT
+	if (!oppo_daily_build())
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+#endif
+
 	subsys->desc->sysmon_pid = -1;
 	subsys->desc->state = NULL;
 	strlcpy(subsys->desc->fw_name, desc->name,

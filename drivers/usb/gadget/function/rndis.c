@@ -647,13 +647,16 @@ static int rndis_set_response(struct rndis_params *params,
 	rndis_set_cmplt_type *resp;
 	rndis_resp_t *r;
 
+	BufLength = le32_to_cpu(buf->InformationBufferLength);
+	BufOffset = le32_to_cpu(buf->InformationBufferOffset);
+	if ((BufLength > RNDIS_MAX_TOTAL_SIZE) ||
+	    (BufOffset + 8 >= RNDIS_MAX_TOTAL_SIZE))
+		    return -EINVAL;
+
 	r = rndis_add_response(params, sizeof(rndis_set_cmplt_type));
 	if (!r)
 		return -ENOMEM;
 	resp = (rndis_set_cmplt_type *)r->buf;
-
-	BufLength = le32_to_cpu(buf->InformationBufferLength);
-	BufOffset = le32_to_cpu(buf->InformationBufferOffset);
 
 #ifdef	VERBOSE_DEBUG
 	pr_debug("%s: Length: %d\n", __func__, BufLength);
@@ -935,7 +938,6 @@ struct rndis_params *rndis_register(void (*resp_avail)(void *v), void *v,
 	}
 #endif
 
-	spin_lock_init(&params->lock);
 	params->confignr = i;
 	params->used = 1;
 	params->state = RNDIS_UNINITIALIZED;
@@ -1020,18 +1022,6 @@ int rndis_set_param_medium(struct rndis_params *params, u32 medium, u32 speed)
 }
 EXPORT_SYMBOL_GPL(rndis_set_param_medium);
 
-u32 rndis_get_dl_max_xfer_size(struct rndis_params *params)
-{
-	pr_debug("%s:\n", __func__);
-	return params->dl_max_xfer_size;
-}
-
-u32 rndis_get_ul_max_xfer_size(struct rndis_params *params)
-{
-	pr_debug("%s:\n", __func__);
-	return params->ul_max_xfer_size;
-}
-
 void rndis_set_max_pkt_xfer(struct rndis_params *params, u8 max_pkt_per_xfer)
 {
 	pr_debug("%s:\n", __func__);
@@ -1100,36 +1090,29 @@ EXPORT_SYMBOL_GPL(rndis_add_hdr);
 void rndis_free_response(struct rndis_params *params, u8 *buf)
 {
 	rndis_resp_t *r, *n;
-	unsigned long flags;
 
-	spin_lock_irqsave(&params->lock, flags);
 	list_for_each_entry_safe(r, n, &params->resp_queue, list) {
 		if (r->buf == buf) {
 			list_del(&r->list);
 			kfree(r);
 		}
 	}
-	spin_unlock_irqrestore(&params->lock, flags);
 }
 EXPORT_SYMBOL_GPL(rndis_free_response);
 
 u8 *rndis_get_next_response(struct rndis_params *params, u32 *length)
 {
 	rndis_resp_t *r, *n;
-	unsigned long flags;
 
 	if (!length) return NULL;
 
-	spin_lock_irqsave(&params->lock, flags);
 	list_for_each_entry_safe(r, n, &params->resp_queue, list) {
 		if (!r->send) {
 			r->send = 1;
 			*length = r->length;
-			spin_unlock_irqrestore(&params->lock, flags);
 			return r->buf;
 		}
 	}
-	spin_unlock_irqrestore(&params->lock, flags);
 
 	return NULL;
 }
@@ -1138,7 +1121,6 @@ EXPORT_SYMBOL_GPL(rndis_get_next_response);
 static rndis_resp_t *rndis_add_response(struct rndis_params *params, u32 length)
 {
 	rndis_resp_t *r;
-	unsigned long flags;
 
 	/* NOTE: this gets copied into ether.c USB_BUFSIZ bytes ... */
 	r = kmalloc(sizeof(rndis_resp_t) + length, GFP_ATOMIC);
@@ -1148,9 +1130,7 @@ static rndis_resp_t *rndis_add_response(struct rndis_params *params, u32 length)
 	r->length = length;
 	r->send = 0;
 
-	spin_lock_irqsave(&params->lock, flags);
 	list_add_tail(&r->list, &params->resp_queue);
-	spin_unlock_irqrestore(&params->lock, flags);
 	return r;
 }
 
@@ -1158,7 +1138,7 @@ int rndis_rm_hdr(struct gether *port,
 			struct sk_buff *skb,
 			struct sk_buff_head *list)
 {
-	int num_pkts = 0;
+	int num_pkts = 1;
 
 	if (skb->len > rndis_ul_max_xfer_size_rcvd)
 		rndis_ul_max_xfer_size_rcvd = skb->len;
@@ -1168,8 +1148,14 @@ int rndis_rm_hdr(struct gether *port,
 		struct sk_buff          *skb2;
 		u32             msg_len, data_offset, data_len;
 
+		/* some rndis hosts send extra byte to avoid zlp, ignore it */
+		if (skb->len == 1) {
+			dev_kfree_skb_any(skb);
+			return 0;
+		}
+
 		if (skb->len < sizeof(*hdr)) {
-			pr_err("invalid rndis pkt: skblen:%u hdr_len:%zu",
+			pr_err("invalid rndis pkt: skblen:%u hdr_len:%lu",
 					skb->len, sizeof(*hdr));
 			dev_kfree_skb_any(skb);
 			return -EINVAL;
@@ -1196,12 +1182,9 @@ int rndis_rm_hdr(struct gether *port,
 			return -EINVAL;
 		}
 
-		num_pkts++;
-
 		skb_pull(skb, data_offset + 8);
 
-		if (data_len == skb->len ||
-				data_len == (skb->len - 1)) {
+		if (msg_len == skb->len) {
 			skb_trim(skb, data_len);
 			break;
 		}
@@ -1216,6 +1199,8 @@ int rndis_rm_hdr(struct gether *port,
 		skb_pull(skb, msg_len - sizeof(*hdr));
 		skb_trim(skb2, data_len);
 		skb_queue_tail(list, skb2);
+
+		num_pkts++;
 	}
 
 	if (num_pkts > rndis_ul_max_pkt_per_xfer_rcvd)
@@ -1253,9 +1238,7 @@ static int rndis_proc_show(struct seq_file *m, void *v)
 			 "speed     : %d\n"
 			 "cable     : %s\n"
 			 "vendor ID : 0x%08X\n"
-			 "vendor    : %s\n"
-			 "ul-max-xfer-size:%zu max-xfer-size-rcvd: %d\n"
-			 "ul-max-pkts-per-xfer:%d max-pkts-per-xfer-rcvd:%d\n",
+			 "vendor    : %s\n",
 			 param->confignr, (param->used) ? "y" : "n",
 			 ({ char *s = "?";
 			 switch (param->state) {
@@ -1269,13 +1252,7 @@ static int rndis_proc_show(struct seq_file *m, void *v)
 			 param->medium,
 			 (param->media_state) ? 0 : param->speed*100,
 			 (param->media_state) ? "disconnected" : "connected",
-			 param->vendorID, param->vendorDescr,
-			 param->dev ? param->max_pkt_per_xfer *
-				 (param->dev->mtu + sizeof(struct ethhdr) +
-				 sizeof(struct rndis_packet_msg_type) + 22) : 0,
-			 rndis_ul_max_xfer_size_rcvd,
-			 param->max_pkt_per_xfer,
-			 rndis_ul_max_pkt_per_xfer_rcvd);
+			 param->vendorID, param->vendorDescr);
 	return 0;
 }
 

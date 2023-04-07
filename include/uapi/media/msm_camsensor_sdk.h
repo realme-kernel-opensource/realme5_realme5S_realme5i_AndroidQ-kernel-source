@@ -1,6 +1,10 @@
 #ifndef __UAPI_LINUX_MSM_CAMSENSOR_SDK_H
 #define __UAPI_LINUX_MSM_CAMSENSOR_SDK_H
 
+#ifndef VENDOR_EDIT
+#define VENDOR_EDIT
+#endif
+
 #include <linux/videodev2.h>
 
 #define KVERSION 0x1
@@ -56,11 +60,15 @@
 
 #define SECURE_CAM_RST_MODULES
 
+/*#ifdev VENDOR_EDIT   shubham.makrariya@camera adding camera id 4*/
 enum msm_sensor_camera_id_t {
 	CAMERA_0,
 	CAMERA_1,
 	CAMERA_2,
 	CAMERA_3,
+	CAMERA_4,
+	CAMERA_5,
+	CAMERA_6,
 	MAX_CAMERAS,
 };
 
@@ -259,6 +267,7 @@ enum msm_camera_i2c_operation {
 	MSM_CAM_WRITE = 0,
 	MSM_CAM_POLL,
 	MSM_CAM_READ,
+	MSM_CAM_CONTINUOUS_READ,
 };
 
 struct msm_sensor_i2c_sync_params {

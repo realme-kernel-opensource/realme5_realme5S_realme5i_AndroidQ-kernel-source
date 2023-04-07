@@ -72,17 +72,6 @@ extern int mmap_rnd_compat_bits __read_mostly;
 #include <asm/pgtable.h>
 #include <asm/processor.h>
 
-/*
- * Architectures that support memory tagging (assigning tags to memory regions,
- * embedding these tags into addresses that point to these memory regions, and
- * checking that the memory and the pointer tags match on memory accesses)
- * redefine this macro to strip tags from pointers.
- * It's defined as noop for arcitectures that don't support memory tagging.
- */
-#ifndef untagged_addr
-#define untagged_addr(addr) (addr)
-#endif
-
 #ifndef __pa_symbol
 #define __pa_symbol(x)  __pa(RELOC_HIDE((unsigned long)(x), 0))
 #endif
@@ -215,6 +204,11 @@ extern unsigned int kobjsize(const void *objp);
 #define VM_HUGEPAGE	0x20000000	/* MADV_HUGEPAGE marked this vma */
 #define VM_NOHUGEPAGE	0x40000000	/* MADV_NOHUGEPAGE marked this vma */
 #define VM_MERGEABLE	0x80000000	/* KSM may merge identical pages */
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+#define VM_BACKUP_CREATE 0x100000000UL	/* Created backup vma for emergency */
+#define VM_BACKUP_ALLOC  0x200000000UL	/* Alloced memory from backup vma */
+#endif
 
 #ifdef CONFIG_ARCH_USES_HIGH_VMA_FLAGS
 #define VM_HIGH_ARCH_BIT_0	32	/* bit only usable on 64-bit architectures */
@@ -573,6 +567,11 @@ static inline void *kvmalloc_array(size_t n, size_t size, gfp_t flags)
 
 extern void kvfree(const void *addr);
 
+static inline atomic_t *compound_mapcount_ptr(struct page *page)
+{
+	return &page[1].compound_mapcount;
+}
+
 static inline int compound_mapcount(struct page *page)
 {
 	VM_BUG_ON_PAGE(!PageCompound(page), page);
@@ -770,7 +769,6 @@ int finish_mkwrite_fault(struct vm_fault *vmf);
 #define NODES_PGOFF		(SECTIONS_PGOFF - NODES_WIDTH)
 #define ZONES_PGOFF		(NODES_PGOFF - ZONES_WIDTH)
 #define LAST_CPUPID_PGOFF	(ZONES_PGOFF - LAST_CPUPID_WIDTH)
-#define KASAN_TAG_PGOFF		(LAST_CPUPID_PGOFF - KASAN_TAG_WIDTH)
 
 /*
  * Define the bit shifts to access each section.  For non-existent
@@ -781,7 +779,6 @@ int finish_mkwrite_fault(struct vm_fault *vmf);
 #define NODES_PGSHIFT		(NODES_PGOFF * (NODES_WIDTH != 0))
 #define ZONES_PGSHIFT		(ZONES_PGOFF * (ZONES_WIDTH != 0))
 #define LAST_CPUPID_PGSHIFT	(LAST_CPUPID_PGOFF * (LAST_CPUPID_WIDTH != 0))
-#define KASAN_TAG_PGSHIFT	(KASAN_TAG_PGOFF * (KASAN_TAG_WIDTH != 0))
 
 /* NODE:ZONE or SECTION:ZONE is used to ID a zone for the buddy allocator */
 #ifdef NODE_NOT_IN_PAGE_FLAGS
@@ -804,7 +801,6 @@ int finish_mkwrite_fault(struct vm_fault *vmf);
 #define NODES_MASK		((1UL << NODES_WIDTH) - 1)
 #define SECTIONS_MASK		((1UL << SECTIONS_WIDTH) - 1)
 #define LAST_CPUPID_MASK	((1UL << LAST_CPUPID_SHIFT) - 1)
-#define KASAN_TAG_MASK		((1UL << KASAN_TAG_WIDTH) - 1)
 #define ZONEID_MASK		((1UL << ZONEID_SHIFT) - 1)
 
 static inline enum zone_type page_zonenum(const struct page *page)
@@ -1034,32 +1030,6 @@ static inline bool cpupid_match_pid(struct task_struct *task, int cpupid)
 	return false;
 }
 #endif /* CONFIG_NUMA_BALANCING */
-
-#ifdef CONFIG_KASAN_SW_TAGS
-static inline u8 page_kasan_tag(const struct page *page)
-{
-	return (page->flags >> KASAN_TAG_PGSHIFT) & KASAN_TAG_MASK;
-}
-
-static inline void page_kasan_tag_set(struct page *page, u8 tag)
-{
-	page->flags &= ~(KASAN_TAG_MASK << KASAN_TAG_PGSHIFT);
-	page->flags |= (tag & KASAN_TAG_MASK) << KASAN_TAG_PGSHIFT;
-}
-
-static inline void page_kasan_tag_reset(struct page *page)
-{
-	page_kasan_tag_set(page, 0xff);
-}
-#else
-static inline u8 page_kasan_tag(const struct page *page)
-{
-	return 0xff;
-}
-
-static inline void page_kasan_tag_set(struct page *page, u8 tag) { }
-static inline void page_kasan_tag_reset(struct page *page) { }
-#endif
 
 static inline struct zone *page_zone(const struct page *page)
 {
@@ -2184,6 +2154,7 @@ extern void set_dma_reserve(unsigned long new_dma_reserve);
 extern void memmap_init_zone(unsigned long, int, unsigned long,
 				unsigned long, enum memmap_context);
 extern void setup_per_zone_wmarks(void);
+extern void update_kswapd_threads(void);
 extern int __meminit init_per_zone_wmark_min(void);
 extern void mem_init(void);
 extern void __init mmap_init(void);
@@ -2204,6 +2175,7 @@ extern void zone_pcp_update(struct zone *zone);
 extern void zone_pcp_reset(struct zone *zone);
 
 /* page_alloc.c */
+extern int kswapd_threads;
 extern int min_free_kbytes;
 extern int watermark_scale_factor;
 
@@ -2364,6 +2336,9 @@ extern unsigned long __must_check vm_mmap(struct file *, unsigned long,
 
 struct vm_unmapped_area_info {
 #define VM_UNMAPPED_AREA_TOPDOWN 1
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+#define VM_UNMAPPED_AREA_RESERVED 0x2
+#endif
 	unsigned long flags;
 	unsigned long length;
 	unsigned long low_limit;
@@ -2447,6 +2422,73 @@ extern struct vm_area_struct * find_vma(struct mm_struct * mm, unsigned long add
 extern struct vm_area_struct * find_vma_prev(struct mm_struct * mm, unsigned long addr,
 					     struct vm_area_struct **pprev);
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+extern unsigned long gpu_compat_high_limit_addr;
+
+#define RESERVE_VMAP_AREA_SIZE (SZ_32M + SZ_64M)
+#define RESERVE_AREA_ALIGN_SIZE SZ_2M
+#define BACKUP_ALLOC_FLAG(vm_flags) ((vm_flags) & VM_BACKUP_ALLOC)
+#define BACKUP_CREATE_FLAG(vm_flags) ((vm_flags) & VM_BACKUP_CREATE)
+
+#define RESERVE_VMAP_ADDR 0xDEADDEAD
+
+static inline int is_backed_addr(struct mm_struct *mm,
+				unsigned long start, unsigned long end)
+{
+	return (mm && mm->reserve_vma &&
+			start >= mm->reserve_vma->vm_start &&
+			end <= mm->reserve_vma->vm_end);
+}
+
+static inline int start_is_backed_addr(struct mm_struct *mm,
+				unsigned long start)
+{
+	return (mm && mm->reserve_vma &&
+			start >= mm->reserve_vma->vm_start &&
+			start < mm->reserve_vma->vm_end);
+}
+
+static inline int check_general_addr(struct mm_struct *mm,
+				unsigned long start, unsigned long end)
+{
+	unsigned long range_start, range_end;
+
+	if (mm && mm->reserve_vma) {
+		range_start = mm->reserve_vma->vm_start;
+		range_end = mm->reserve_vma->vm_end;
+
+		if ((start < range_start) && (end <= range_start))
+			return 1;
+		if ((start >= range_end) && (end > range_end))
+			return 1;
+		return 0;
+	}
+
+	return 1;
+}
+
+static inline int check_valid_reserve_addr(struct mm_struct *mm,
+				unsigned long start, unsigned long end)
+{
+	unsigned long range_start, range_end;
+
+	if (mm && mm->reserve_vma) {
+		range_start = mm->reserve_vma->vm_start;
+		range_end = mm->reserve_vma->vm_end;
+
+		if ((start < range_start) && (end <= range_start))
+			return 1;
+		if ((start >= range_end) && (end > range_end))
+			return 1;
+		if (start >= range_start && end <= range_end)
+			return 1;
+		return 0;
+	}
+
+	return 1;
+}
+#endif
+
 /* Look up the first VMA which intersects the interval start_addr..end_addr-1,
    NULL if none.  Assume start_addr < end_addr. */
 static inline struct vm_area_struct * find_vma_intersection(struct mm_struct * mm, unsigned long start_addr, unsigned long end_addr)
@@ -2462,6 +2504,11 @@ static inline unsigned long vm_start_gap(struct vm_area_struct *vma)
 {
 	unsigned long vm_start = vma->vm_start;
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+	if (BACKUP_ALLOC_FLAG(vma->vm_flags))
+		return vm_start;
+#endif
+
 	if (vma->vm_flags & VM_GROWSDOWN) {
 		vm_start -= stack_guard_gap;
 		if (vm_start > vma->vm_start)
@@ -2473,6 +2520,11 @@ static inline unsigned long vm_start_gap(struct vm_area_struct *vma)
 static inline unsigned long vm_end_gap(struct vm_area_struct *vma)
 {
 	unsigned long vm_end = vma->vm_end;
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+	if (BACKUP_ALLOC_FLAG(vma->vm_flags))
+		return vm_end;
+#endif
 
 	if (vma->vm_flags & VM_GROWSUP) {
 		vm_end += stack_guard_gap;
@@ -2595,30 +2647,6 @@ static inline void kernel_poison_pages(struct page *page, int numpages,
 					int enable) { }
 static inline bool page_is_poisoned(struct page *page) { return false; }
 #endif
-
-#ifdef CONFIG_INIT_ON_ALLOC_DEFAULT_ON
-DECLARE_STATIC_KEY_TRUE(init_on_alloc);
-#else
-DECLARE_STATIC_KEY_FALSE(init_on_alloc);
-#endif
-static inline bool want_init_on_alloc(gfp_t flags)
-{
-	if (static_branch_unlikely(&init_on_alloc) &&
-	    !page_poisoning_enabled())
-		return true;
-	return flags & __GFP_ZERO;
-}
-
-#ifdef CONFIG_INIT_ON_FREE_DEFAULT_ON
-DECLARE_STATIC_KEY_TRUE(init_on_free);
-#else
-DECLARE_STATIC_KEY_FALSE(init_on_free);
-#endif
-static inline bool want_init_on_free(void)
-{
-	return static_branch_unlikely(&init_on_free) &&
-	       !page_poisoning_enabled();
-}
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
 extern bool _debug_pagealloc_enabled;
@@ -2837,10 +2865,30 @@ struct reclaim_param {
 	int nr_to_reclaim;
 	/* pages reclaimed */
 	int nr_reclaimed;
+#ifdef VENDOR_EDIT
+#ifdef CONFIG_PROCESS_RECLAIM_ENHANCE
+	bool inactive_lru;
+#endif
+	struct task_struct *reclaimed_task;
+#endif
 };
 extern struct reclaim_param reclaim_task_anon(struct task_struct *task,
 		int nr_to_reclaim);
-#endif
+
+#ifdef VENDOR_EDIT
+extern ssize_t reclaim_task_write(struct task_struct* task,
+		char *buffer);
+
+#define PR_PASS		0
+#define PR_SEM_OUT	1
+#define PR_TASK_FG	2
+#define PR_TIME_OUT	3
+#define PR_ADDR_OVER	4
+#define PR_FULL		5
+#define PR_TASK_RUN	6
+#define PR_TASK_DIE	7
+#endif /* VENDOR_EDIT */
+#endif /* CONFIG_PROCESS_RECLAIM */
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_MM_H */

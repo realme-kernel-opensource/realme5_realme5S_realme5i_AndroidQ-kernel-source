@@ -432,7 +432,7 @@ unmap_release:
 		kfree(desc);
 
 	END_USE(vq);
-	return -ENOMEM;
+	return -EIO;
 }
 
 /**

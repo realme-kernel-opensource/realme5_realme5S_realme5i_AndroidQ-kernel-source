@@ -27,6 +27,8 @@
 #include <linux/mutex.h>
 #include "virtio_clk_common.h"
 
+#define VIRTIO_CLK_TIMEOUT	(200) /* miliseconds */
+
 struct virtio_clk {
 	struct virtio_device	*vdev;
 	struct virtqueue	*vq;
@@ -81,7 +83,14 @@ static int virtio_clk_prepare(struct clk_hw *hw)
 
 	virtqueue_kick(vclk->vq);
 
-	wait_for_completion(&vclk->rsp_avail);
+	ret = wait_for_completion_timeout(&vclk->rsp_avail,
+			msecs_to_jiffies(VIRTIO_CLK_TIMEOUT));
+	if (!ret) {
+		pr_err("%s: wait for completion timeout\n",
+				clk_hw_get_name(hw));
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vclk->vq, &len);
 	if (!rsp) {
@@ -128,7 +137,13 @@ static void virtio_clk_unprepare(struct clk_hw *hw)
 
 	virtqueue_kick(vclk->vq);
 
-	wait_for_completion(&vclk->rsp_avail);
+	ret = wait_for_completion_timeout(&vclk->rsp_avail,
+			msecs_to_jiffies(VIRTIO_CLK_TIMEOUT));
+	if (!ret) {
+		pr_err("%s: wait for completion timeout\n",
+				clk_hw_get_name(hw));
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vclk->vq, &len);
 	if (!rsp) {
@@ -177,7 +192,14 @@ static int virtio_clk_set_rate(struct clk_hw *hw,
 
 	virtqueue_kick(vclk->vq);
 
-	wait_for_completion(&vclk->rsp_avail);
+	ret = wait_for_completion_timeout(&vclk->rsp_avail,
+			msecs_to_jiffies(VIRTIO_CLK_TIMEOUT));
+	if (!ret) {
+		pr_err("%s: wait for completion timeout\n",
+				clk_hw_get_name(hw));
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vclk->vq, &len);
 	if (!rsp) {
@@ -226,7 +248,14 @@ static long virtio_clk_round_rate(struct clk_hw *hw, unsigned long rate,
 
 	virtqueue_kick(vclk->vq);
 
-	wait_for_completion(&vclk->rsp_avail);
+	ret = wait_for_completion_timeout(&vclk->rsp_avail,
+			msecs_to_jiffies(VIRTIO_CLK_TIMEOUT));
+	if (!ret) {
+		pr_err("%s: wait for completion timeout\n",
+				clk_hw_get_name(hw));
+		ret = 0;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vclk->vq, &len);
 	if (!rsp) {
@@ -280,7 +309,14 @@ static unsigned long virtio_clk_get_rate(struct clk_hw *hw,
 
 	virtqueue_kick(vclk->vq);
 
-	wait_for_completion(&vclk->rsp_avail);
+	ret = wait_for_completion_timeout(&vclk->rsp_avail,
+			msecs_to_jiffies(VIRTIO_CLK_TIMEOUT));
+	if (!ret) {
+		pr_err("%s: wait for completion timeout\n",
+				clk_hw_get_name(hw));
+		ret = 0;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vclk->vq, &len);
 	if (!rsp) {
@@ -334,7 +370,14 @@ static int virtio_clk_set_flags(struct clk_hw *hw, unsigned int flags)
 
 	virtqueue_kick(vclk->vq);
 
-	wait_for_completion(&vclk->rsp_avail);
+	ret = wait_for_completion_timeout(&vclk->rsp_avail,
+			msecs_to_jiffies(VIRTIO_CLK_TIMEOUT));
+	if (!ret) {
+		pr_err("%s: wait for completion timeout\n",
+				clk_hw_get_name(hw));
+		ret = 0;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vclk->vq, &len);
 	if (!rsp) {
@@ -393,7 +436,13 @@ __virtio_reset(struct reset_controller_dev *rcdev, unsigned long id,
 
 	virtqueue_kick(vclk->vq);
 
-	wait_for_completion(&vclk->rsp_avail);
+	ret = wait_for_completion_timeout(&vclk->rsp_avail,
+			msecs_to_jiffies(VIRTIO_CLK_TIMEOUT));
+	if (!ret) {
+		pr_err("wait for completion timeout\n");
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vclk->vq, &len);
 	if (!rsp) {

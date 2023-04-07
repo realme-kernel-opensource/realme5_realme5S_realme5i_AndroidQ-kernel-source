@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -97,6 +97,10 @@ struct rpmh_master_stats_prv_data {
 	struct kobject *kobj;
 };
 
+#ifdef VENDOR_EDIT
+extern struct kobject *rpmstats_kobj_oppo;
+#endif
+
 static struct msm_rpmh_master_stats apss_master_stats;
 static void __iomem *rpmh_unit_base;
 
@@ -133,6 +137,7 @@ static ssize_t msm_rpmh_master_stats_show(struct kobject *kobj,
 {
 	ssize_t length;
 	int i = 0;
+	size_t size = 0;
 	struct msm_rpmh_master_stats *record = NULL;
 
 	mutex_lock(&rpmh_stats_mutex);
@@ -147,7 +152,7 @@ static ssize_t msm_rpmh_master_stats_show(struct kobject *kobj,
 	for (i = 0; i < ARRAY_SIZE(rpmh_masters); i++) {
 		record = (struct msm_rpmh_master_stats *) qcom_smem_get(
 					rpmh_masters[i].pid,
-					rpmh_masters[i].smem_id, NULL);
+					rpmh_masters[i].smem_id, &size);
 		if (!IS_ERR_OR_NULL(record) && (PAGE_SIZE - length > 0))
 			length += msm_rpmh_master_stats_print_data(
 					buf + length, PAGE_SIZE - length,
@@ -208,6 +213,10 @@ static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
 	struct kobject *rpmh_master_stats_kobj = NULL;
 	int ret = -ENOMEM;
 
+#ifdef VENDOR_EDIT
+	struct rpmh_master_stats_prv_data *prvdata_oppo = NULL;
+#endif
+
 	if (!pdev)
 		return -EINVAL;
 
@@ -235,6 +244,36 @@ static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
 		goto fail_sysfs;
 	}
 
+#ifdef VENDOR_EDIT
+	if(rpmstats_kobj_oppo == NULL)
+	{
+		rpmstats_kobj_oppo =kobject_create_and_add("oppo",power_kobj);
+	}
+	if (!rpmstats_kobj_oppo) {
+		pr_err("%s: Cannot create rpmstats kobject\n", __func__);
+		ret = -ENOMEM;
+		return ret;
+	}
+
+	prvdata_oppo = devm_kzalloc(&pdev->dev, sizeof(*prvdata_oppo), GFP_KERNEL);
+	if (!prvdata_oppo)
+		return ret;
+	
+	prvdata_oppo->kobj = rpmstats_kobj_oppo;
+	sysfs_attr_init(&prvdata_oppo->ka.attr);
+	prvdata_oppo->ka.attr.mode = 0444;
+	prvdata_oppo->ka.attr.name = "oppo_rpm_master_stats";
+	prvdata_oppo->ka.show = msm_rpmh_master_stats_show;
+	prvdata_oppo->ka.store = NULL;
+
+	ret = sysfs_create_file(prvdata_oppo->kobj, &prvdata_oppo->ka.attr);
+	if (ret) {
+		pr_err("sysfs_create_file failed\n");
+		goto fail_sysfs_oppo;
+	}
+	
+#endif
+
 	rpmh_unit_base = of_iomap(pdev->dev.of_node, 0);
 	if (!rpmh_unit_base) {
 		pr_err("Failed to get rpmh_unit_base\n");
@@ -244,10 +283,18 @@ static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
 
 	apss_master_stats.version_id = 0x1;
 	platform_set_drvdata(pdev, prvdata);
+#ifdef VENDOR_EDIT
+	platform_set_drvdata(pdev, prvdata_oppo);
+#endif
 	return ret;
 
 fail_iomap:
 	sysfs_remove_file(prvdata->kobj, &prvdata->ka.attr);
+#ifdef VENDOR_EDIT
+	sysfs_remove_file(prvdata_oppo->kobj, &prvdata_oppo->ka.attr);
+fail_sysfs_oppo:
+	kobject_put(prvdata_oppo->kobj);
+#endif
 fail_sysfs:
 	kobject_put(prvdata->kobj);
 	return ret;

@@ -30,7 +30,7 @@
 #define MSM_VFE48_BUS_CLIENT_INIT 0xABAB
 #define VFE48_STATS_BURST_LEN 3
 #define VFE48_UB_SIZE_VFE 2048 /* 2048 * 256 bits = 64KB */
-#define VFE48_UB_STATS_SIZE 352
+#define VFE48_UB_STATS_SIZE 576
 #define MSM_ISP48_TOTAL_IMAGE_UB_VFE (VFE48_UB_SIZE_VFE - VFE48_UB_STATS_SIZE)
 
 
@@ -323,13 +323,13 @@ void msm_vfe48_stats_cfg_ub(struct vfe_device *vfe_dev)
 	uint32_t ub_size[VFE47_NUM_STATS_TYPE] = {
 		64, /* MSM_ISP_STATS_HDR_BE */
 		64, /* MSM_ISP_STATS_BG */
-		32, /* MSM_ISP_STATS_BF */
-		32, /* MSM_ISP_STATS_HDR_BHIST */
-		32, /* MSM_ISP_STATS_RS */
-		32, /* MSM_ISP_STATS_CS */
-		32, /* MSM_ISP_STATS_IHIST */
-		32, /* MSM_ISP_STATS_BHIST */
-		32, /* MSM_ISP_STATS_AEC_BG */
+		64, /* MSM_ISP_STATS_BF */
+		64, /* MSM_ISP_STATS_HDR_BHIST */
+		64, /* MSM_ISP_STATS_RS */
+		64, /* MSM_ISP_STATS_CS */
+		64, /* MSM_ISP_STATS_IHIST */
+		64, /* MSM_ISP_STATS_BHIST */
+		64, /* MSM_ISP_STATS_AEC_BG */
 	};
 
 	stats_burst_len = VFE48_STATS_BURST_LEN;
@@ -451,7 +451,7 @@ void msm_vfe48_clear_dual_irq_status(struct vfe_device *vfe_dev,
 			(*dual_irq_status &
 			msm_camera_io_r(vfe_dev->camss_base + 0x140)) &&
 			(count < MAX_RECOVERY_THRESHOLD)) {
-			pr_debug("%s: problem with clear try again status %x\n",
+			pr_err("%s: problem with clear try again status %x\n",
 			__func__, msm_camera_io_r(vfe_dev->camss_base + 0x140));
 			msm_camera_io_w(*dual_irq_status,
 				vfe_dev->camss_base + 0x13C);

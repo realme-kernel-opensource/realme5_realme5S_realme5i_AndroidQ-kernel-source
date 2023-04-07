@@ -27,6 +27,7 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
 
+#define VIRTIO_REGULATOR_TIMEOUT		200 /* miliseconds */
 #define VIRTIO_REGULATOR_MAX_NAME		20
 #define VIRTIO_REGULATOR_VOLTAGE_UNKNOWN	1
 
@@ -77,7 +78,12 @@ static int virtio_regulator_enable(struct regulator_dev *rdev)
 
 	virtqueue_kick(vreg->vq);
 
-	wait_for_completion(&vreg->rsp_avail);
+	ret = wait_for_completion_timeout(&vreg->rsp_avail,
+			msecs_to_jiffies(VIRTIO_REGULATOR_TIMEOUT));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vreg->vq, &len);
 	if (!rsp) {
@@ -126,7 +132,12 @@ static int virtio_regulator_disable(struct regulator_dev *rdev)
 
 	virtqueue_kick(vreg->vq);
 
-	wait_for_completion(&vreg->rsp_avail);
+	ret = wait_for_completion_timeout(&vreg->rsp_avail,
+			msecs_to_jiffies(VIRTIO_REGULATOR_TIMEOUT));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vreg->vq, &len);
 	if (!rsp) {
@@ -187,7 +198,12 @@ static int virtio_regulator_set_voltage(struct regulator_dev *rdev, int min_uV,
 
 	virtqueue_kick(vreg->vq);
 
-	wait_for_completion(&vreg->rsp_avail);
+	ret = wait_for_completion_timeout(&vreg->rsp_avail,
+			msecs_to_jiffies(VIRTIO_REGULATOR_TIMEOUT));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vreg->vq, &len);
 	if (!rsp) {
@@ -234,7 +250,12 @@ static int virtio_regulator_get_voltage(struct regulator_dev *rdev)
 
 	virtqueue_kick(vreg->vq);
 
-	wait_for_completion(&vreg->rsp_avail);
+	ret = wait_for_completion_timeout(&vreg->rsp_avail,
+			msecs_to_jiffies(VIRTIO_REGULATOR_TIMEOUT));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vreg->vq, &len);
 	if (!rsp) {
@@ -288,7 +309,12 @@ static int virtio_regulator_set_mode(struct regulator_dev *rdev,
 
 	virtqueue_kick(vreg->vq);
 
-	wait_for_completion(&vreg->rsp_avail);
+	ret = wait_for_completion_timeout(&vreg->rsp_avail,
+			msecs_to_jiffies(VIRTIO_REGULATOR_TIMEOUT));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vreg->vq, &len);
 	if (!rsp) {
@@ -335,7 +361,12 @@ static unsigned int virtio_regulator_get_mode(struct regulator_dev *rdev)
 
 	virtqueue_kick(vreg->vq);
 
-	wait_for_completion(&vreg->rsp_avail);
+	ret = wait_for_completion_timeout(&vreg->rsp_avail,
+			msecs_to_jiffies(VIRTIO_REGULATOR_TIMEOUT));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vreg->vq, &len);
 	if (!rsp) {
@@ -388,7 +419,12 @@ static int virtio_regulator_set_load(struct regulator_dev *rdev, int load_ua)
 
 	virtqueue_kick(vreg->vq);
 
-	wait_for_completion(&vreg->rsp_avail);
+	ret = wait_for_completion_timeout(&vreg->rsp_avail,
+			msecs_to_jiffies(VIRTIO_REGULATOR_TIMEOUT));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
 
 	rsp = virtqueue_get_buf(vreg->vq, &len);
 	if (!rsp) {

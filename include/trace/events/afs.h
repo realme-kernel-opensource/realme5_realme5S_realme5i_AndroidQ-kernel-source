@@ -40,7 +40,7 @@ enum afs_call_trace {
 	EM(afs_call_trace_free,			"FREE ") \
 	EM(afs_call_trace_put,			"PUT  ") \
 	EM(afs_call_trace_wake,			"WAKE ") \
-	E_(afs_call_trace_work,			"QUEUE")
+	E_(afs_call_trace_work,			"WORK ")
 
 /*
  * Export enum symbols via userspace.

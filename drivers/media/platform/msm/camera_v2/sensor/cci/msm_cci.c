@@ -1332,9 +1332,9 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 	}
 
 	if (cci_dev->ref_count++) {
-		CDBG("%s ref_count %d\n", __func__, cci_dev->ref_count);
+		pr_err("%s ref_count %d\n", __func__, cci_dev->ref_count);
 		master = c_ctrl->cci_info->cci_i2c_master;
-		CDBG("%s:%d master %d\n", __func__, __LINE__, master);
+		pr_err("%s:%d master %d\n", __func__, __LINE__, master);
 		if (master < MASTER_MAX && master >= 0) {
 			mutex_lock(&cci_dev->cci_master_info[master].mutex);
 			mutex_lock(&cci_dev->cci_master_info[
@@ -1390,7 +1390,7 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 				__func__, __LINE__);
 	}
 	if (rc < 0) {
-		CDBG("%s: request gpio failed\n", __func__);
+		pr_err("%s: request gpio failed\n", __func__);
 		goto request_gpio_failed;
 	}
 
@@ -1427,10 +1427,19 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 	}
 
 	/* Re-initialize the completion */
+	#ifdef VENDOR_EDIT
+	for (j = 0; j < NUM_MASTERS; j++) {
+			reinit_completion(&cci_dev->cci_master_info[j].reset_complete);
+	for (i = 0; i < NUM_QUEUES; i++)
+			reinit_completion(&cci_dev->cci_master_info[j].
+					report_q[i]);
+       }
+	#else
 	reinit_completion(&cci_dev->cci_master_info[master].reset_complete);
 	for (i = 0; i < NUM_QUEUES; i++)
 		reinit_completion(&cci_dev->cci_master_info[
 				master].report_q[i]);
+	#endif
 	rc = msm_camera_enable_irq(cci_dev->irq, true);
 	if (rc < 0)
 		pr_err("%s: irq enable failed\n", __func__);
@@ -1467,7 +1476,7 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 							i][j].max_queue_size =
 							CCI_I2C_QUEUE_1_SIZE;
 			}
-			CDBG("CCI Master[%d] :: Q0 size: %d Q1 size: %d\n", i,
+			pr_err("CCI Master[%d] :: Q0 size: %d Q1 size: %d\n", i,
 				cci_dev->cci_i2c_queue_info[
 							i][j].max_queue_size,
 				cci_dev->cci_i2c_queue_info[
@@ -1549,7 +1558,7 @@ static int32_t msm_cci_release(struct v4l2_subdev *sd)
 		goto ahb_vote_suspend;
 	}
 	if (--cci_dev->ref_count) {
-		CDBG("%s ref_count Exit %d\n", __func__, cci_dev->ref_count);
+		pr_err("%s ref_count Exit %d\n", __func__, cci_dev->ref_count);
 		rc = 0;
 		goto ahb_vote_suspend;
 	}

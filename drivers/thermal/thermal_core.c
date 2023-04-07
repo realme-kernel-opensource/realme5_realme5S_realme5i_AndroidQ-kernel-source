@@ -56,6 +56,67 @@ static struct thermal_governor *def_governor;
 
 static struct workqueue_struct *thermal_passive_wq;
 
+#ifdef VENDOR_EDIT
+#define TZ_MAX		10
+#define TP_MAX		10
+static int raw_temp[TZ_MAX][TP_MAX];
+
+enum {
+	MODE_INIT = 0,
+	MODE_RESTORE,
+	MODE_UPDATE,
+	MODE_MAX,
+};
+
+void thermal_update_trip_dynamic(int mode, int delta)
+{
+	struct thermal_zone_device *pos;
+	int tz = 0, trip, temp;
+
+	if (mode >= MODE_MAX) {
+		pr_err("%s: invalid mode\n");
+		return;
+	}
+
+	list_for_each_entry(pos, &thermal_tz_list, node) {
+		struct __thermal_zone *devdata = pos->devdata;
+		if (!devdata->dynamic_trip)
+			continue;
+
+		for (trip = 0; trip < pos->trips; trip++) {
+			if (trip >= TP_MAX) {
+				pr_err("%s: tz=%s, too many tp\n", __func__,
+					pos->type);
+				break;
+			}
+
+			if (mode == MODE_INIT) {
+				pos->ops->get_trip_temp(pos, trip, &raw_temp[tz][trip]);
+				pr_debug("%s: mode=%d, tz=%s, trip=%d, raw_temp=%d\n", __func__,
+					mode, pos->type, trip, raw_temp[tz][trip]);
+			} else if (mode == MODE_RESTORE) {
+				pos->ops->set_trip_temp(pos, trip, raw_temp[tz][trip]);
+				pr_debug("%s: mode=%d, tz=%s, trip=%d, raw_temp=%d\n", __func__,
+					mode, pos->type, trip, raw_temp[tz][trip]);
+
+			} else {
+				pos->ops->get_trip_temp(pos, trip, &temp);
+				pos->ops->set_trip_temp(pos, trip, temp + delta);
+				pr_debug("%s: mode=%d, tz=%s, trip=%d, temp=%d, delta=%d\n", __func__,
+					mode, pos->type, trip, temp, delta);
+			}
+		}
+
+		tz++;
+		if (tz >= TZ_MAX) {
+			pr_err("%s: too many dynamic-trip tz\n", __func__);
+			break;
+		}
+	}
+}
+EXPORT_SYMBOL(thermal_update_trip_dynamic);
+#endif
+
 /*
  * Governor section: set of functions to handle thermal governors
  *
@@ -1439,7 +1500,7 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 
 	mutex_unlock(&thermal_list_lock);
 
-	cancel_delayed_work_sync(&tz->poll_queue);
+	thermal_zone_device_set_polling(NULL, tz, 0);
 
 	thermal_set_governor(tz, NULL);
 
@@ -1647,6 +1708,9 @@ static int __init thermal_init(void)
 	if (result)
 		goto exit_zone_parse;
 
+#ifdef VENDOR_EDIT
+	thermal_update_trip_dynamic(MODE_INIT, 0);
+#endif
 	result = register_pm_notifier(&thermal_pm_nb);
 	if (result)
 		pr_warn("Thermal: Can not register suspend notifier, return %d\n",

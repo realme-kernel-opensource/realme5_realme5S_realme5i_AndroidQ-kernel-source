@@ -28,7 +28,6 @@
 #include <linux/signal.h>
 
 #include <asm/fpsimd.h>
-#include <asm/cpufeature.h>
 #include <asm/cputype.h>
 #include <asm/simd.h>
 
@@ -206,19 +205,8 @@ void fpsimd_preserve_current_state(void)
  */
 void fpsimd_restore_current_state(void)
 {
-	/*
-	 * For the tasks that were created before we detected the absence of
-	 * FP/SIMD, the TIF_FOREIGN_FPSTATE could be set via fpsimd_thread_switch(),
-	 * e.g, init. This could be then inherited by the children processes.
-	 * If we later detect that the system doesn't support FP/SIMD,
-	 * we must clear the flag for  all the tasks to indicate that the
-	 * FPSTATE is clean (as we can't have one) to avoid looping for ever in
-	 * do_notify_resume().
-	 */
-	if (!system_supports_fpsimd()) {
-		clear_thread_flag(TIF_FOREIGN_FPSTATE);
+	if (!system_supports_fpsimd())
 		return;
-	}
 
 	local_bh_disable();
 
@@ -240,7 +228,7 @@ void fpsimd_restore_current_state(void)
  */
 void fpsimd_update_current_state(struct fpsimd_state *state)
 {
-	if (WARN_ON(!system_supports_fpsimd()))
+	if (!system_supports_fpsimd())
 		return;
 
 	local_bh_disable();

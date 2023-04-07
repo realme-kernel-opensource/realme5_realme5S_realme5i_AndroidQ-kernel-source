@@ -44,8 +44,7 @@ static struct internal_dev *internal_dev_priv(struct net_device *netdev)
 }
 
 /* Called with rcu_read_lock_bh. */
-static netdev_tx_t
-internal_dev_xmit(struct sk_buff *skb, struct net_device *netdev)
+static int internal_dev_xmit(struct sk_buff *skb, struct net_device *netdev)
 {
 	int len, err;
 
@@ -64,7 +63,7 @@ internal_dev_xmit(struct sk_buff *skb, struct net_device *netdev)
 	} else {
 		netdev->stats.tx_errors++;
 	}
-	return NETDEV_TX_OK;
+	return 0;
 }
 
 static int internal_dev_open(struct net_device *netdev)
@@ -157,7 +156,7 @@ static void do_setup(struct net_device *netdev)
 	netdev->priv_flags |= IFF_LIVE_ADDR_CHANGE | IFF_OPENVSWITCH |
 			      IFF_PHONY_HEADROOM | IFF_NO_QUEUE;
 	netdev->needs_free_netdev = true;
-	netdev->priv_destructor = NULL;
+	netdev->priv_destructor = internal_dev_destructor;
 	netdev->ethtool_ops = &internal_dev_ethtool_ops;
 	netdev->rtnl_link_ops = &internal_dev_link_ops;
 
@@ -177,7 +176,6 @@ static struct vport *internal_dev_create(const struct vport_parms *parms)
 {
 	struct vport *vport;
 	struct internal_dev *internal_dev;
-	struct net_device *dev;
 	int err;
 
 	vport = ovs_vport_alloc(0, &ovs_internal_vport_ops, parms);
@@ -186,9 +184,8 @@ static struct vport *internal_dev_create(const struct vport_parms *parms)
 		goto error;
 	}
 
-	dev = alloc_netdev(sizeof(struct internal_dev),
-			   parms->name, NET_NAME_USER, do_setup);
-	vport->dev = dev;
+	vport->dev = alloc_netdev(sizeof(struct internal_dev),
+				  parms->name, NET_NAME_USER, do_setup);
 	if (!vport->dev) {
 		err = -ENOMEM;
 		goto error_free_vport;
@@ -212,7 +209,6 @@ static struct vport *internal_dev_create(const struct vport_parms *parms)
 	err = register_netdevice(vport->dev);
 	if (err)
 		goto error_unlock;
-	vport->dev->priv_destructor = internal_dev_destructor;
 
 	dev_set_promiscuity(vport->dev, 1);
 	rtnl_unlock();
@@ -222,9 +218,9 @@ static struct vport *internal_dev_create(const struct vport_parms *parms)
 
 error_unlock:
 	rtnl_unlock();
-	free_percpu(dev->tstats);
+	free_percpu(vport->dev->tstats);
 error_free_netdev:
-	free_netdev(dev);
+	free_netdev(vport->dev);
 error_free_vport:
 	ovs_vport_free(vport);
 error:

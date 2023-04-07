@@ -1145,8 +1145,10 @@ static int phy_power_on(struct rk_priv_data *bsp_priv, bool enable)
 	int ret;
 	struct device *dev = &bsp_priv->pdev->dev;
 
-	if (!ldo)
-		return 0;
+	if (!ldo) {
+		dev_err(dev, "no regulator found\n");
+		return -1;
+	}
 
 	if (enable) {
 		ret = regulator_enable(ldo);
@@ -1362,7 +1364,7 @@ static int rk_gmac_probe(struct platform_device *pdev)
 
 	ret = rk_gmac_clk_init(plat_dat);
 	if (ret)
-		goto err_remove_config_dt;
+		return ret;
 
 	ret = rk_gmac_powerup(plat_dat->bsp_priv);
 	if (ret)

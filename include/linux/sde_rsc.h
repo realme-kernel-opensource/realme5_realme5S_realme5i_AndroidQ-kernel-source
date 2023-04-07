@@ -338,13 +338,13 @@ static inline int sde_rsc_client_state_update(struct sde_rsc_client *client,
 	return 0;
 }
 
-static inline int sde_rsc_client_get_vsync_refcount(
+int sde_rsc_client_get_vsync_refcount(
 		struct sde_rsc_client *caller_client)
 {
 	return 0;
 }
 
-static inline int sde_rsc_client_reset_vsync_refcount(
+int sde_rsc_client_reset_vsync_refcount(
 		struct sde_rsc_client *caller_client)
 {
 	return 0;

@@ -424,19 +424,24 @@ static int msm_ispif_reset_hw(struct ispif_device *ispif)
 {
 	int rc = 0;
 	long timeout = 0;
+    uint32_t ispifStatus;
 
 	ispif->clk_idx = 0;
 
 	/* Turn ON VFE regulators before enabling the vfe clocks */
 	rc = msm_ispif_set_regulators(ispif->vfe_vdd, ispif->vfe_vdd_count, 1);
-	if (rc < 0)
-		return rc;
 
+	if (rc < 0) {
+		trace_printk("msm_ispif_set_regulators rc = %d\n",rc);
+		return rc;
+		}
 	rc = msm_camera_clk_enable(&ispif->pdev->dev,
 		ispif->clk_info, ispif->clks,
 		ispif->num_clk, 1);
 	if (rc < 0) {
 		pr_err("%s: cannot enable clock, error = %d",
+			__func__, rc);
+		trace_printk("%s: cannot enable clock, error = %d",
 			__func__, rc);
 		goto reg_disable;
 	} else {
@@ -456,6 +461,10 @@ static int msm_ispif_reset_hw(struct ispif_device *ispif)
 	if (timeout <= 0) {
 		rc = -ETIMEDOUT;
 		pr_err("%s: VFE0 reset wait timeout\n", __func__);
+        ispifStatus = msm_camera_io_r(ispif->base + ISPIF_VFE_m_IRQ_STATUS_0(VFE0));
+        msm_camera_io_w(ispifStatus, ispif->base + ISPIF_VFE_m_IRQ_CLEAR_0(VFE0));
+        pr_err("%s: VFE0 reset failure reason  IRQ %x  atomic read %d \n", __func__, ispifStatus, atomic_read(&ispif->reset_trig[VFE0]));
+		trace_printk("%s: VFE0 reset wait timeout\n", __func__);
 		goto clk_disable;
 	}
 
@@ -469,6 +478,10 @@ static int msm_ispif_reset_hw(struct ispif_device *ispif)
 		CDBG("%s: VFE1 done\n", __func__);
 		if (timeout <= 0) {
 			pr_err("%s: VFE1 reset wait timeout\n", __func__);
+            ispifStatus = msm_camera_io_r(ispif->base + ISPIF_VFE_m_IRQ_STATUS_0(VFE1));
+            msm_camera_io_w(ispifStatus, ispif->base + ISPIF_VFE_m_IRQ_CLEAR_0(VFE1));
+            pr_err("%s: VFE1 reset failure reason  IRQ %x  atomic read %d \n", __func__, ispifStatus, atomic_read(&ispif->reset_trig[VFE1]));
+			trace_printk("%s: VFE1 reset wait timeout\n", __func__);
 			rc = -ETIMEDOUT;
 		}
 	}
@@ -581,9 +594,10 @@ static int msm_ispif_reset(struct ispif_device *ispif)
 	int rc = 0;
 	int i;
 
-	if (WARN_ON(!ispif))
+	if (WARN_ON(!ispif)) {
+		trace_printk("msm_ispif_reset rc EINVAL\n");
 		return -EINVAL;
-
+		}
 	memset(ispif->sof_count, 0, sizeof(ispif->sof_count));
 	for (i = 0; i < ispif->vfe_info.num_vfe; i++) {
 
@@ -625,7 +639,7 @@ static int msm_ispif_reset(struct ispif_device *ispif)
 
 	msm_camera_io_w_mb(ISPIF_IRQ_GLOBAL_CLEAR_CMD, ispif->base +
 		ISPIF_IRQ_GLOBAL_CLEAR_CMD_ADDR);
-
+	trace_printk("msm_ispif_reset rc = %d\n", rc);
 	return rc;
 }
 
@@ -1730,9 +1744,11 @@ static int msm_ispif_init(struct ispif_device *ispif,
 	uint32_t csid_version)
 {
 	int rc = 0;
+	pr_err("%s: enter\n", __func__); //add log for isp init fail
 
 	if (WARN_ON(!ispif)) {
 		pr_err("%s: invalid ispif params", __func__);
+		trace_printk("%s: invalid ispif params", __func__);
 		return -EINVAL;
 	}
 
@@ -1740,13 +1756,16 @@ static int msm_ispif_init(struct ispif_device *ispif,
 		pr_err("%s: ispif already initted state = %d\n", __func__,
 			ispif->ispif_state);
 		rc = -EPERM;
+		trace_printk("%s: ispif already initted state = %d\n", __func__,
+			ispif->ispif_state);
 		return rc;
 	}
 
 	rc = msm_camera_enable_irq(ispif->irq, 1);
 	if (rc < 0) {
 		pr_err("%s:Error enabling IRQs\n", __func__);
-		return rc;
+		trace_printk("%s:Error enabling IRQs\n", __func__);
+	return rc;
 	}
 	/* can we set to zero? */
 	ispif->applied_intf_cmd[VFE0].intf_cmd  = 0xFFFFFFFF;
@@ -1768,16 +1787,29 @@ static int msm_ispif_init(struct ispif_device *ispif,
 			CAM_AHB_CLIENT_ISPIF, CAM_AHB_SVS_VOTE);
 	if (rc < 0) {
 		pr_err("%s: failed to vote for AHB\n", __func__);
+		trace_printk("%s: failed to vote for AHB\n", __func__);
 		return rc;
 	}
-
+// songliangliang@camera add for  isp init fai 20200212 -----start
+#ifdef VENDOR_EDIT
 	rc = msm_ispif_reset_hw(ispif);
-	if (rc)
+	pr_err("%s:msm_ispif_reset_hw %d \n", __func__,rc);
+
+	/*rc = msm_ispif_reset_hw(ispif);
+	if (rc) {
+		trace_printk("msm_ispif_reset_hw rc = %d\n", rc);
 		goto error_ahb;
+		}
+       */
+#endif
+// songliangliang@camera add for  isp init fai 20200212 -----end
 
 	rc = msm_ispif_reset(ispif);
-	if (rc)
+	pr_err("%s:msm_ispif_reset %d \n", __func__,rc);   //add log for isp init fail
+	if (rc) {
+		trace_printk("msm_ispif_reset rc = %d\n", rc);
 		goto error_ahb;
+		}
 	ispif->ispif_state = ISPIF_POWER_UP;
 	return 0;
 

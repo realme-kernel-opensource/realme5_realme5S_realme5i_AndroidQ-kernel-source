@@ -4,6 +4,17 @@
 
 #include <linux/types.h>
 
+//Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink.
+//#ifdef VENDOR_EDIT
+//Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink.
+#define MODEM_QMI_WS_INDEX 2
+#define QRTR_FIRST_HEAD "QrtrFirst "
+#define QRTR_FIRST_HEAD_COUNT 10
+extern int qrtr_first_msg;
+extern char qrtr_first_msg_details[256];
+extern char *sub_qrtr_first_msg_details;
+//#endif /* VENDOR_EDIT */
+
 struct sk_buff;
 
 /* endpoint node id auto assignment */

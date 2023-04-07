@@ -159,7 +159,16 @@ void sched_update_nr_prod(int cpu, long delta, bool inc)
 	spin_unlock_irqrestore(&per_cpu(nr_lock, cpu), flags);
 }
 EXPORT_SYMBOL(sched_update_nr_prod);
+unsigned long sched_get_capacity_orig(int cpu)
+{
+	unsigned long capacity, flags;
+	struct rq *rq = cpu_rq(cpu);
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	capacity = capacity_orig_of(cpu);
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
 
+	return capacity;
+}
 /*
  * Returns the CPU utilization % in the last window.
  *

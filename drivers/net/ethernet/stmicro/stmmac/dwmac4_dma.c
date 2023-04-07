@@ -191,7 +191,7 @@ static void dwmac4_rx_watchdog(void __iomem *ioaddr, u32 riwt, u32 number_chan)
 }
 
 static void dwmac4_dma_rx_chan_op_mode(void __iomem *ioaddr, int mode,
-				       u32 channel, int fifosz, u8 qmode)
+				       u32 channel, int fifosz)
 {
 	unsigned int rqs = fifosz / 256 - 1;
 	u32 mtl_rx_op, mtl_rx_int;
@@ -218,10 +218,8 @@ static void dwmac4_dma_rx_chan_op_mode(void __iomem *ioaddr, int mode,
 	mtl_rx_op &= ~MTL_OP_MODE_RQS_MASK;
 	mtl_rx_op |= rqs << MTL_OP_MODE_RQS_SHIFT;
 
-	/* Enable flow control only if each channel gets 4 KiB or more FIFO and
-	 * only if channel is not an AVB channel.
-	 */
-	if (fifosz >= 4096 && qmode != MTL_QUEUE_AVB) {
+	/* enable flow control only if each channel gets 4 KiB or more FIFO */
+	if (fifosz >= 4096) {
 		unsigned int rfd, rfa;
 
 		mtl_rx_op |= MTL_OP_MODE_EHFC;
@@ -273,7 +271,7 @@ static void dwmac4_dma_rx_chan_op_mode(void __iomem *ioaddr, int mode,
 }
 
 static void dwmac4_dma_tx_chan_op_mode(void __iomem *ioaddr, int mode,
-				       u32 channel, int fifosz, u8 qmode)
+				       u32 channel, int fifosz)
 {
 	u32 mtl_tx_op = readl(ioaddr + MTL_CHAN_TX_OP_MODE(channel));
 	unsigned int tqs = fifosz / 256 - 1;
@@ -313,11 +311,7 @@ static void dwmac4_dma_tx_chan_op_mode(void __iomem *ioaddr, int mode,
 	 * reflect the available fifo size per queue (total fifo size / number
 	 * of enabled queues).
 	 */
-	mtl_tx_op &= ~MTL_OP_MODE_TXQEN_MASK;
-	if (qmode != MTL_QUEUE_AVB)
-		mtl_tx_op |= MTL_OP_MODE_TXQEN;
-	else
-		mtl_tx_op |= MTL_OP_MODE_TXQEN_AV;
+	mtl_tx_op |= MTL_OP_MODE_TXQEN;
 	mtl_tx_op &= ~MTL_OP_MODE_TQS_MASK;
 	mtl_tx_op |= tqs << MTL_OP_MODE_TQS_SHIFT;
 
@@ -373,9 +367,6 @@ static void dwmac4_get_hw_feature(void __iomem *ioaddr,
 
 	/* IEEE 1588-2002 */
 	dma_cap->time_stamp = 0;
-
-	/* Number of PPS outputs */
-	dma_cap->pps_out_num = ((hw_cap >> 24) & GMAC_PPSOUTNUM_MASK);
 }
 
 /* Enable/disable TSO feature and set MSS */
@@ -393,23 +384,6 @@ static void dwmac4_enable_tso(void __iomem *ioaddr, bool en, u32 chan)
 		value = readl(ioaddr + DMA_CHAN_TX_CONTROL(chan));
 		writel(value & ~DMA_CONTROL_TSE,
 		       ioaddr + DMA_CHAN_TX_CONTROL(chan));
-	}
-}
-
-static void dwmac4_dma_rx_chan_fep(void __iomem *ioaddr, bool en, u32 chan)
-{
-	u32 value;
-
-	if (en) {
-		/* enable FEP */
-		value = readl_relaxed(ioaddr + MTL_CHAN_RX_OP_MODE(chan));
-		writel_relaxed(value | MTL_OP_MODE_FEP,
-			       ioaddr + MTL_CHAN_RX_OP_MODE(chan));
-	} else {
-		/* disable FEP */
-		value = readl_relaxed(ioaddr + MTL_CHAN_RX_OP_MODE(chan));
-		writel_relaxed(value & ~MTL_OP_MODE_FEP,
-			       ioaddr + MTL_CHAN_RX_OP_MODE(chan));
 	}
 }
 
@@ -437,7 +411,6 @@ const struct stmmac_dma_ops dwmac4_dma_ops = {
 	.set_rx_tail_ptr = dwmac4_set_rx_tail_ptr,
 	.set_tx_tail_ptr = dwmac4_set_tx_tail_ptr,
 	.enable_tso = dwmac4_enable_tso,
-	.enable_rx_fep = dwmac4_dma_rx_chan_fep,
 };
 
 const struct stmmac_dma_ops dwmac410_dma_ops = {
@@ -464,5 +437,4 @@ const struct stmmac_dma_ops dwmac410_dma_ops = {
 	.set_rx_tail_ptr = dwmac4_set_rx_tail_ptr,
 	.set_tx_tail_ptr = dwmac4_set_tx_tail_ptr,
 	.enable_tso = dwmac4_enable_tso,
-	.enable_rx_fep = dwmac4_dma_rx_chan_fep,
 };

@@ -36,6 +36,34 @@ void disable_sched_clock_irqtime(void)
 	sched_clock_irqtime = 0;
 }
 
+#ifdef VENDOR_EDIT
+unsigned int sysctl_task_cpustats_enable = 0;
+DEFINE_PER_CPU(struct kernel_task_cpustat, ktask_cpustat);
+static int cputime_one_jiffy;
+static void account_task_time(struct task_struct *p, unsigned int ticks,
+		enum cpu_usage_stat type)
+{
+	struct kernel_task_cpustat *kstat;
+	int idx;
+	struct task_cpustat *s;
+	if (!sysctl_task_cpustats_enable)
+		return;
+	if (!cputime_one_jiffy)
+		cputime_one_jiffy = nsecs_to_jiffies(TICK_NSEC);
+	kstat = this_cpu_ptr(&ktask_cpustat);
+	idx = kstat->idx % MAX_CTP_WINDOW;
+	s = &kstat->cpustat[idx];
+	s->pid = p->pid;
+	s->tgid = p->tgid;
+	s->type = type;
+	s->freq = cpufreq_quick_get(p->cpu);
+	s->begin = jiffies - cputime_one_jiffy * ticks;
+	s->end = jiffies;
+	memcpy(s->comm, p->comm, TASK_COMM_LEN);
+	kstat->idx = idx + 1;
+}
+#endif /* VENDOR_EDIT */
+
 static void irqtime_account_delta(struct irqtime *irqtime, u64 delta,
 				  enum cpu_usage_stat idx)
 {
@@ -407,14 +435,27 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 		 * Also, p->stime needs to be updated for ksoftirqd.
 		 */
 		account_system_index_time(p, cputime, CPUTIME_SOFTIRQ);
+#ifdef VENDOR_EDIT
+		account_task_time(p, ticks, CPUTIME_SOFTIRQ);
+#endif /* VENDOR_EDIT */
 	} else if (user_tick) {
 		account_user_time(p, cputime);
+#ifdef VENDOR_EDIT
+		account_task_time(p, ticks, CPUTIME_USER);
+#endif /* VENDOR_EDIT */
 	} else if (p == rq->idle) {
 		account_idle_time(cputime);
 	} else if (p->flags & PF_VCPU) { /* System time or guest time */
 		account_guest_time(p, cputime);
+#ifdef VENDOR_EDIT
+		account_task_time(p, ticks, CPUTIME_USER);
+#endif /* VENDOR_EDIT */
+
 	} else {
 		account_system_index_time(p, cputime, CPUTIME_SYSTEM);
+#ifdef VENDOR_EDIT
+		account_task_time(p, ticks, CPUTIME_SYSTEM);
+#endif /* VENDOR_EDIT */
 	}
 }
 
@@ -762,7 +803,7 @@ void vtime_account_system(struct task_struct *tsk)
 
 	write_seqcount_begin(&vtime->seqcount);
 	/* We might have scheduled out from guest path */
-	if (tsk->flags & PF_VCPU)
+	if (current->flags & PF_VCPU)
 		vtime_account_guest(tsk, vtime);
 	else
 		__vtime_account_system(tsk, vtime);
@@ -805,7 +846,7 @@ void vtime_guest_enter(struct task_struct *tsk)
 	 */
 	write_seqcount_begin(&vtime->seqcount);
 	__vtime_account_system(tsk, vtime);
-	tsk->flags |= PF_VCPU;
+	current->flags |= PF_VCPU;
 	write_seqcount_end(&vtime->seqcount);
 }
 EXPORT_SYMBOL_GPL(vtime_guest_enter);
@@ -816,7 +857,7 @@ void vtime_guest_exit(struct task_struct *tsk)
 
 	write_seqcount_begin(&vtime->seqcount);
 	vtime_account_guest(tsk, vtime);
-	tsk->flags &= ~PF_VCPU;
+	current->flags &= ~PF_VCPU;
 	write_seqcount_end(&vtime->seqcount);
 }
 EXPORT_SYMBOL_GPL(vtime_guest_exit);

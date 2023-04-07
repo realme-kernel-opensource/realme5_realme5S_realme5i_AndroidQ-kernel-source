@@ -528,8 +528,8 @@ tot_hitm_cmp(struct perf_hpp_fmt *fmt __maybe_unused,
 {
 	struct c2c_hist_entry *c2c_left;
 	struct c2c_hist_entry *c2c_right;
-	uint64_t tot_hitm_left;
-	uint64_t tot_hitm_right;
+	unsigned int tot_hitm_left;
+	unsigned int tot_hitm_right;
 
 	c2c_left  = container_of(left, struct c2c_hist_entry, he);
 	c2c_right = container_of(right, struct c2c_hist_entry, he);
@@ -562,8 +562,7 @@ __f ## _cmp(struct perf_hpp_fmt *fmt __maybe_unused,			\
 									\
 	c2c_left  = container_of(left, struct c2c_hist_entry, he);	\
 	c2c_right = container_of(right, struct c2c_hist_entry, he);	\
-	return (uint64_t) c2c_left->stats.__f -				\
-	       (uint64_t) c2c_right->stats.__f;				\
+	return c2c_left->stats.__f - c2c_right->stats.__f;		\
 }
 
 #define STAT_FN(__f)		\
@@ -616,8 +615,7 @@ ld_llcmiss_cmp(struct perf_hpp_fmt *fmt __maybe_unused,
 	c2c_left  = container_of(left, struct c2c_hist_entry, he);
 	c2c_right = container_of(right, struct c2c_hist_entry, he);
 
-	return (uint64_t) llc_miss(&c2c_left->stats) -
-	       (uint64_t) llc_miss(&c2c_right->stats);
+	return llc_miss(&c2c_left->stats) - llc_miss(&c2c_right->stats);
 }
 
 static uint64_t total_records(struct c2c_stats *stats)
@@ -2456,7 +2454,6 @@ static int build_cl_output(char *cl_sort, bool no_source)
 	bool add_sym   = false;
 	bool add_dso   = false;
 	bool add_src   = false;
-	int ret = 0;
 
 	if (!buf)
 		return -ENOMEM;
@@ -2475,8 +2472,7 @@ static int build_cl_output(char *cl_sort, bool no_source)
 			add_dso = true;
 		} else if (strcmp(tok, "offset")) {
 			pr_err("unrecognized sort token: %s\n", tok);
-			ret = -EINVAL;
-			goto err;
+			return -EINVAL;
 		}
 	}
 
@@ -2499,15 +2495,13 @@ static int build_cl_output(char *cl_sort, bool no_source)
 		add_sym ? "symbol," : "",
 		add_dso ? "dso," : "",
 		add_src ? "cl_srcline," : "",
-		"node") < 0) {
-		ret = -ENOMEM;
-		goto err;
-	}
+		"node") < 0)
+		return -ENOMEM;
 
 	c2c.show_src = add_src;
-err:
+
 	free(buf);
-	return ret;
+	return 0;
 }
 
 static int setup_coalesce(const char *coalesce, bool no_source)

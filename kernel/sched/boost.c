@@ -200,7 +200,11 @@ static void sched_boost_enable(int type)
 	sched_boosts[next_boost].enter();
 }
 
+#ifdef VENDOR_EDIT
+void sched_boost_disable_all(void)
+#else
 static void sched_boost_disable_all(void)
+#endif
 {
 	int i;
 
@@ -211,6 +215,9 @@ static void sched_boost_disable_all(void)
 		}
 	}
 }
+#ifdef VENDOR_EDIT
+EXPORT_SYMBOL_GPL(sched_boost_disable_all);
+#endif
 
 static void _sched_set_boost(int type)
 {
@@ -287,3 +294,10 @@ done:
 	mutex_unlock(&boost_mutex);
 	return ret;
 }
+
+#ifdef VENDOR_EDIT
+int sched_boost(void)
+{
+	return sysctl_sched_boost;
+}
+#endif /* VENDOR_EDIT */

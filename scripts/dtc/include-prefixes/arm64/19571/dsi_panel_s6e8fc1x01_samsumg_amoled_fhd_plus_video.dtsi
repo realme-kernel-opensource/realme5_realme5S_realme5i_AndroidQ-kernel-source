@@ -1,0 +1,98 @@
+/* Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&mdss_mdp {
+	dsi_s6e8fc1x0_samsumg_amoled_video:
+			qcom,mdss_dsi_s6e8fc1x09_samsumg_amoled_video {
+		qcom,mdss-dsi-panel-name =
+			"s6e8fc1x0 amoled fhd+ video mode dsi samsung panel";
+		qcom,mdss-dsi-panel-type = "dsi_video_mode";
+
+		qcom,mdss-dsi-virtual-channel-id = <0>;
+		qcom,mdss-dsi-stream = <0>;
+		qcom,mdss-dsi-bpp = <24>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
+		qcom,mdss-dsi-underflow-color = <0xff>;
+		qcom,mdss-dsi-border-color = <0>;
+		qcom,mdss-dsi-h-sync-pulse = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
+		qcom,mdss-dsi-bllp-eof-power-mode;
+		qcom,mdss-dsi-bllp-power-mode;
+		qcom,mdss-dsi-tx-eot-append;
+		qcom,mdss-dsi-lane-0-state;
+		qcom,mdss-dsi-lane-1-state;
+		qcom,mdss-dsi-lane-2-state;
+		qcom,mdss-dsi-lane-3-state;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
+		qcom,mdss-dsi-lp11-init;
+		qcom,mdss-dsi-reset-sequence = <1 10>, <0 10>, <1 10>;
+		//qcom,mdss-dsi-te-pin-select = <1>;
+		qcom,mdss-dsi-wr-mem-start = <0x2c>;
+		qcom,mdss-dsi-wr-mem-continue = <0x3c>;
+		//qcom,mdss-dsi-te-dcs-command = <1>;
+		//qcom,mdss-dsi-te-check-enable;
+		//qcom,mdss-dsi-te-using-te-pin;
+
+		qcom,mdss-dsi-display-timings {
+			timing@0 {
+				qcom,mdss-dsi-panel-width = <1080>;
+				qcom,mdss-dsi-panel-height = <2400>;
+				qcom,mdss-dsi-h-front-porch = <80>;
+				qcom,mdss-dsi-h-back-porch = <40>;
+				qcom,mdss-dsi-h-pulse-width = <20>;
+				qcom,mdss-dsi-h-sync-skew = <0>;
+				qcom,mdss-dsi-v-back-porch = <12>;
+				qcom,mdss-dsi-v-front-porch = <4>;
+				qcom,mdss-dsi-v-pulse-width = <1>;
+				qcom,mdss-dsi-panel-framerate = <61>;
+				qcom,mdss-dsi-on-command = [
+					05 01 00 00 14 00 01 11
+					05 01 00 00 00 00 01 34
+					/*FAIL SAFE Setting */
+					39 01 00 00 00 00 03 FC 5A 5A
+					39 01 00 00 00 00 0D ED 00 01 00 40 04 08 A8 84 4A 73 02 0A
+					39 01 00 00 00 00 03 FC A5 A5
+					/* ELVSS Dim Setting */
+					39 01 00 00 00 00 03 F0 5A 5A
+					15 01 00 00 00 00 02 B0 05
+					15 01 00 00 00 00 02 B3 07
+					39 01 00 00 00 00 03 F0 A5 A5
+					/*ACL Mode */
+					39 01 00 00 00 00 02 55 00
+					39 01 00 00 00 00 02 53 28
+					39 01 00 00 00 00 03 F0 5A 5A
+					15 01 00 00 00 00 02 F2 0F
+					39 01 00 00 64 00 03 F0 A5 A5
+					05 01 00 00 14 00 01 29];
+				qcom,mdss-dsi-off-command = [
+					05 01 00 00 14 00 01 28
+					05 01 00 00 78 00 01 10];
+				qcom,mdss-dsi-hbm-on-command = [
+				  39 01 00 00 00 00 02 53 E0
+				  //39 01 00 00 00 00 03 51 03 FF
+			          39 01 00 00 00 00 03 F0 5A 5A
+				  39 01 00 00 00 00 02 B7 00
+				  39 01 00 00 00 00 03 F0 A5 A5];
+				qcom,mdss-dsi-hbm-off-command = [
+				  39 01 00 00 00 00 02 53 20
+				  //39 01 00 00 00 00 03 51 00 01
+				  39 01 00 00 00 00 03 F0 5A 5A
+				  39 01 00 00 00 00 02 B7 02
+				  39 01 00 00 00 00 03 F0 A5 A5];
+				qcom,mdss-dsi-on-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
+			};
+		};
+	};
+};

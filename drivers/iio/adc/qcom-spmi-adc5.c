@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -739,8 +739,18 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_XOTHERM)
 	[ADC_BAT_THERM_PU2]	= ADC_CHAN_TEMP("bat_therm_pu2", 1,
 					SCALE_HW_CALIB_BATT_THERM_100K)
-	[ADC_BAT_THERM_PU1]	= ADC_CHAN_TEMP("bat_therm_pu1", 1,
-					SCALE_HW_CALIB_BATT_THERM_30K)
+#ifndef VENDOR_EDIT
+    [ADC_BAT_THERM_PU1]	= ADC_CHAN_TEMP("bat_therm_pu1", 1,
+            SCALE_HW_CALIB_BATT_THERM_30K)
+#else
+#if (SHIPPING_API_LEVEL == 28)
+    [ADC_BAT_THERM_PU1]	= ADC_CHAN_TEMP("bat_therm_pu1", 1,
+            SCALE_HW_CALIB_BATT_THERM_30K)
+#else
+    [ADC_BAT_THERM_PU1] = ADC_CHAN_TEMP("bat_therm_pu1", 1,
+            SCALE_HW_CALIB_DEFAULT)
+#endif
+#endif
 	[ADC_BAT_THERM_PU3]	= ADC_CHAN_TEMP("bat_therm_pu3", 1,
 					SCALE_HW_CALIB_BATT_THERM_400K)
 	[ADC_BAT_ID_PU2]	= ADC_CHAN_TEMP("bat_id", 1,
@@ -763,14 +773,48 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
 	[ADC_AMUX_THM3]			= ADC_CHAN_TEMP("amux_thm3", 1,
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
+#if 0 //def VENDOR_EDIT
+#if (SHIPPING_API_LEVEL == 28)
+    [ADC_GPIO1_PU2] = ADC_CHAN_VOLT("usb_temp_v_l", 1,
+            SCALE_HW_CALIB_DEFAULT)
+#else
+    [ADC_GPIO1_PU2] = ADC_CHAN_VOLT("usb_temp1", 1,
+            SCALE_HW_CALIB_DEFAULT)
+#endif
+#else
 	[ADC_GPIO1_PU2]	= ADC_CHAN_TEMP("gpio1_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
+#if 0
+#if (SHIPPING_API_LEVEL == 28)
+	[ADC_GPIO2_PU2] = ADC_CHAN_VOLT("sub_adc_gpio3", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#else
+	 [ADC_GPIO2_PU2]	= ADC_CHAN_TEMP("gpio2_pu2", 1,
+					 SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
+#else
 	[ADC_GPIO2_PU2]	= ADC_CHAN_TEMP("gpio2_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
+#if 0 //def VENDOR_EDIT
+#if (SHIPPING_API_LEVEL == 28)
+     [ADC_GPIO3_PU2] = ADC_CHAN_VOLT("usb_temp_v_r", 1,
+             SCALE_HW_CALIB_DEFAULT)
+#else
+     [ADC_GPIO3_PU2] = ADC_CHAN_VOLT("usb_temp2", 1,
+             SCALE_HW_CALIB_DEFAULT)
+#endif
+#else
 	[ADC_GPIO3_PU2]	= ADC_CHAN_TEMP("gpio3_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
 	[ADC_GPIO4_PU2]	= ADC_CHAN_TEMP("gpio4_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+	#if 0 //def VENDOR_EDIT
+	[ADC_GPIO2]	= ADC_CHAN_VOLT("board_id_vdata", 1,
+					SCALE_HW_CALIB_DEFAULT)
+	#endif /* VENDOR_EDIT */
 };
 
 static const struct adc_channels adc_chans_rev2[ADC_MAX_CHANNEL] = {
@@ -794,12 +838,6 @@ static const struct adc_channels adc_chans_rev2[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
 	[ADC_XO_THERM_PU2]	= ADC_CHAN_TEMP("xo_therm", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
-	[ANA_IN]		= ADC_CHAN_TEMP("drax_temp", 1,
-					SCALE_HW_CALIB_PMIC_THERM)
-	[ADC_AMUX_THM1]		= ADC_CHAN_VOLT("amux_thm1", 1,
-					SCALE_HW_CALIB_DEFAULT)
-	[ADC_AMUX_THM3]		= ADC_CHAN_VOLT("amux_thm3", 1,
-					SCALE_HW_CALIB_DEFAULT)
 };
 
 static int adc_get_dt_channel_data(struct device *dev,
@@ -1144,7 +1182,6 @@ static int adc_freeze(struct device *dev)
 static const struct dev_pm_ops adc_pm_ops = {
 	.freeze = adc_freeze,
 	.restore = adc_restore,
-	.thaw = adc_restore,
 };
 
 static struct platform_driver adc_driver = {

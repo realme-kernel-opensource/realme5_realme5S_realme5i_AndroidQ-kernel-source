@@ -90,6 +90,10 @@ struct msm_sensor_ctrl_t {
 	uint8_t is_csid_tg_mode;
 	uint32_t is_secure;
 	uint8_t bypass_video_node_creation;
+	#ifdef VENDOR_EDIT
+	/*for proc file*/
+	uint16_t module_info;
+	#endif
 };
 
 int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void *argp);

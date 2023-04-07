@@ -16,7 +16,6 @@ platforms.
 		    "qcom,trinket-apcs-hmss-global"
 		    "qcom,atoll-apcs-hmss-global"
 		    "qcom,atoll-apcs-hmss-ipc2"
-		    "qcom,sdm660-apcs-hmss-global"
 - reg:
 	Usage: required
 	Value type: <prop-encoded-array>

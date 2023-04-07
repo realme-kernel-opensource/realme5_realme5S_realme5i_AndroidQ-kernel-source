@@ -134,8 +134,6 @@ static struct sk_buff *brcm_tag_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	skb->dev = ds->ports[source_port].netdev;
 
-	skb->offload_fwd_mark = 1;
-
 	return skb;
 }
 

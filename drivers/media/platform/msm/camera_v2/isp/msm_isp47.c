@@ -38,7 +38,7 @@
 #define VFE47_STATS_BURST_LEN 3
 #define VFE47_UB_SIZE_VFE0 2048
 #define VFE47_UB_SIZE_VFE1 1536
-#define VFE47_UB_STATS_SIZE 288
+#define VFE47_UB_STATS_SIZE 576
 #define MSM_ISP47_TOTAL_IMAGE_UB_VFE0 (VFE47_UB_SIZE_VFE0 - VFE47_UB_STATS_SIZE)
 #define MSM_ISP47_TOTAL_IMAGE_UB_VFE1 (VFE47_UB_SIZE_VFE1 - VFE47_UB_STATS_SIZE)
 #define VFE47_WM_BASE(idx) (0xA0 + 0x2C * idx)
@@ -1892,7 +1892,7 @@ void msm_vfe47_axi_clear_wm_xbar_reg(
 		vfe_dev->vfe_base + VFE47_XBAR_BASE(wm));
 }
 
-
+#ifdef VENDOR_EDIT
 void msm_vfe47_cfg_axi_ub_equal_default(
 	struct vfe_device *vfe_dev,
 	enum msm_vfe_input_src frame_src)
@@ -1964,6 +1964,79 @@ void msm_vfe47_cfg_axi_ub_equal_default(
 		ub_offset += wm_ub_size;
 	}
 }
+#else
+void msm_vfe47_cfg_axi_ub_equal_default(
+	struct vfe_device *vfe_dev,
+	enum msm_vfe_input_src frame_src)
+{
+	int i;
+	uint32_t ub_offset = 0;
+	struct msm_vfe_axi_shared_data *axi_data =
+		&vfe_dev->axi_data;
+	uint32_t total_image_size = 0;
+	uint8_t pix_num_used_wms = 0;
+	uint8_t rdi_num_used_wms = 0;
+	uint32_t prop_size = 0;
+	uint32_t wm_ub_size;
+	uint32_t min_ub;
+	uint64_t delta;
+	uint32_t vfe_ub_size = 0;
+
+	for (i = 0; i < axi_data->hw_info->num_wm; i++) {
+		if (axi_data->free_wm[i]) {
+		/* separate wm for each interface as min_ub is different for
+		 * both pix and rdi
+		 */
+			if (VFE_PIX_0 == SRC_TO_INTF(
+					HANDLE_TO_IDX(axi_data->free_wm[i])))
+				pix_num_used_wms++;
+			else
+				rdi_num_used_wms++;
+			total_image_size +=
+				axi_data->wm_image_size[i];
+		}
+	}
+	/* get ub for each vfe */
+	vfe_ub_size = vfe_dev->hw_info->vfe_ops.axi_ops.get_ub_size(vfe_dev);
+	/* calculate min_ub needed for both pix and rdi wm
+	 * for pix min_ub 96 and rdi 192 as per hw
+	 */
+	min_ub = (axi_data->hw_info->min_wm_ub * pix_num_used_wms) +
+			(axi_data->hw_info->min_wm_ub * 2 * rdi_num_used_wms);
+	/* calculate propotional ub for all wm */
+	prop_size = vfe_ub_size - min_ub;
+	for (i = 0; i < axi_data->hw_info->num_wm; i++) {
+		if (!axi_data->free_wm[i]) {
+			msm_camera_io_w(0,
+				vfe_dev->vfe_base +
+				vfe_dev->hw_info->vfe_ops.axi_ops.ub_reg_offset(
+						vfe_dev, i));
+			continue;
+		}
+		/* calcualte delta by considering
+		 * wm_image_size + total imagesize
+		 */
+		delta = (uint64_t)axi_data->wm_image_size[i] *
+			(uint64_t)prop_size;
+			do_div(delta, total_image_size);
+		/* to meet hw constraint add min_ub of 192
+		 * for RDI and 96 for pix
+		 */
+		if (VFE_PIX_0 != SRC_TO_INTF(
+			HANDLE_TO_IDX(axi_data->free_wm[i])))
+			wm_ub_size = (axi_data->hw_info->min_wm_ub * 2) +
+					(uint32_t)delta;
+		else
+			wm_ub_size = axi_data->hw_info->min_wm_ub +
+					(uint32_t)delta;
+		msm_camera_io_w(ub_offset << 16 | (wm_ub_size - 1),
+			vfe_dev->vfe_base +
+			vfe_dev->hw_info->vfe_ops.axi_ops.ub_reg_offset(
+				vfe_dev, i));
+		ub_offset += wm_ub_size;
+	}
+}
+#endif
 
 void msm_vfe47_cfg_axi_ub_equal_slicing(
 	struct vfe_device *vfe_dev)

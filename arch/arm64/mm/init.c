@@ -332,16 +332,7 @@ static void __init update_memory_limit(void)
 	phys_addr_t min_ddr_sz = 0, offline_sz = 0;
 	int t_len = (2 * dt_root_size_cells) * sizeof(__be32);
 
-	if (memory_limit == (phys_addr_t)ULLONG_MAX)
-		ram_sz = memblock_phys_mem_size();
-	else if (IS_ALIGNED(memory_limit, MIN_MEMORY_BLOCK_SIZE))
-		ram_sz = memory_limit;
-	else {
-		WARN(1, "mem-offline is not supported for DDR size %lld\n",
-				memory_limit);
-		return;
-	}
-
+	ram_sz = memblock_phys_mem_size();
 	node = of_get_flat_dt_subnode_by_name(dt_root, "mem-offline");
 	if (node == -FDT_ERR_NOTFOUND) {
 		pr_err("mem-offine node not found in FDT\n");
@@ -491,16 +482,12 @@ void __init arm64_memblock_init(void)
 		memblock_remove(0, memstart_addr);
 	}
 
+	update_memory_limit();
 	/*
 	 * Save bootloader imposed memory limit before we overwirte
 	 * memblock.
 	 */
-	if (memory_limit == (phys_addr_t)ULLONG_MAX)
-		bootloader_memory_limit = memblock_end_of_DRAM();
-	else
-		bootloader_memory_limit = memblock_max_addr(memory_limit);
-
-	update_memory_limit();
+	bootloader_memory_limit = memblock_end_of_DRAM();
 
 	/*
 	 * Apply the memory limit if it was set. Since the kernel may be loaded
@@ -696,19 +683,20 @@ void __init mem_init(void)
 		swiotlb_init(1);
 	else
 		swiotlb_force = SWIOTLB_NO_FORCE;
-
+pr_err("zhye test 0::%s::%d\n", __func__,__LINE__);
 	set_max_mapnr(pfn_to_page(max_pfn) - mem_map);
-
+pr_err("zhye test 1::%s::%d\n", __func__,__LINE__);
 #ifndef CONFIG_SPARSEMEM_VMEMMAP
 	free_unused_memmap();
 #endif
+pr_err("zhye test 2::%s::%d\n", __func__,__LINE__);
 	/* this will put all unused low memory onto the freelists */
 	free_all_bootmem();
-
+pr_err("zhye test 3::%s::%d\n", __func__,__LINE__);
 	kexec_reserve_crashkres_pages();
-
+pr_err("zhye test 4::%s::%d\n", __func__,__LINE__);
 	mem_init_print_info(NULL);
-
+pr_err("zhye test 5::%s::%d\n", __func__,__LINE__);
 #ifdef CONFIG_PRINT_VMEMLAYOUT
 #define MLK(b, t) b, t, ((t) - (b)) >> 10
 #define MLM(b, t) b, t, ((t) - (b)) >> 20

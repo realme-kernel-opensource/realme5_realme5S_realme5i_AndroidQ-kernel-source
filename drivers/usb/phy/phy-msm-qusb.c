@@ -111,19 +111,19 @@
 
 #define HSTX_TRIMSIZE			4
 
-static unsigned int tune1;
+static unsigned int tune1 = 0xc8;
 module_param(tune1, uint, 0644);
 MODULE_PARM_DESC(tune1, "QUSB PHY TUNE1");
 
-static unsigned int tune2;
+static unsigned int tune2 = 0x30;
 module_param(tune2, uint, 0644);
 MODULE_PARM_DESC(tune2, "QUSB PHY TUNE2");
 
-static unsigned int tune3;
+static unsigned int tune3 = 0x83;
 module_param(tune3, uint, 0644);
 MODULE_PARM_DESC(tune3, "QUSB PHY TUNE3");
 
-static unsigned int tune4;
+static unsigned int tune4 = 0xc7;
 module_param(tune4, uint, 0644);
 MODULE_PARM_DESC(tune4, "QUSB PHY TUNE4");
 
@@ -1113,14 +1113,15 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		ret = of_property_read_u32(dev->of_node, "qcom,usb-hs-ac-value",
 						&qphy->usb_hs_ac_value);
 		if (ret) {
-			dev_err(dev, "usb_hs_ac_value not passed\n");
+			dev_err(dev, "usb_hs_ac_value not passed\n", __func__);
 			return ret;
 		}
 
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"tcsr_conn_box_spare_0");
 		if (!res) {
-			dev_err(dev, "tcsr_conn_box_spare_0 not passed\n");
+			dev_err(dev, "tcsr_conn_box_spare_0 not passed\n",
+								__func__);
 			return -ENOENT;
 		}
 
@@ -1165,8 +1166,8 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		if (IS_ERR(qphy->iface_clk)) {
 			ret = PTR_ERR(qphy->iface_clk);
 			qphy->iface_clk = NULL;
-			if (ret == -EPROBE_DEFER)
-				return ret;
+		if (ret == -EPROBE_DEFER)
+			return ret;
 			dev_err(dev, "couldn't get iface_clk(%d)\n", ret);
 		}
 	}

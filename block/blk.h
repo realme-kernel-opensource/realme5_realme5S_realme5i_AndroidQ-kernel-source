@@ -61,12 +61,13 @@ void blk_free_flush_queue(struct blk_flush_queue *q);
 int blk_init_rl(struct request_list *rl, struct request_queue *q,
 		gfp_t gfp_mask);
 void blk_exit_rl(struct request_queue *q, struct request_list *rl);
+void blk_exit_queue(struct request_queue *q);
 void blk_rq_bio_prep(struct request_queue *q, struct request *rq,
 			struct bio *bio);
 void blk_queue_bypass_start(struct request_queue *q);
 void blk_queue_bypass_end(struct request_queue *q);
 void __blk_queue_free_tags(struct request_queue *q);
-bool blk_freeze_queue(struct request_queue *q);
+void blk_freeze_queue(struct request_queue *q);
 
 static inline void blk_queue_enter_live(struct request_queue *q)
 {
@@ -148,6 +149,12 @@ static inline void blk_clear_rq_complete(struct request *rq)
 #define ELV_ON_HASH(rq) ((rq)->rq_flags & RQF_HASHED)
 
 void blk_insert_flush(struct request *rq);
+#ifdef VENDOR_EDIT
+extern int fg_count;
+extern int both_count;
+extern bool fg_debug;
+extern unsigned int sysctl_fg_io_opt;
+#endif /*VENDOR_EDIT*/
 
 static inline struct request *__elv_next_request(struct request_queue *q)
 {
@@ -158,7 +165,31 @@ static inline struct request *__elv_next_request(struct request_queue *q)
 
 	while (1) {
 		if (!list_empty(&q->queue_head)) {
+#ifdef VENDOR_EDIT
+			if ( unlikely(!sysctl_fg_io_opt))
+				rq = list_entry_rq(q->queue_head.next);
+			else {
+#ifdef CONFIG_PM
+				if (!list_empty(&q->fg_head) && q->fg_count > 0 && (q->rpm_status == RPM_ACTIVE)) {
+#else
+				if (!list_empty(&q->fg_head) && q->fg_count > 0) {
+#endif
+					rq = list_entry(q->fg_head.next, struct request, fg_list);
+					q->fg_count--;
+				}
+				else if (q->both_count > 0) {
+						rq = list_entry_rq(q->queue_head.next);
+						q->both_count--;
+				}
+				else {
+					q->fg_count = q->fg_count_max;
+					q->both_count = q->both_count_max;
+					rq = list_entry_rq(q->queue_head.next);
+				}
+			}
+#else
 			rq = list_entry_rq(q->queue_head.next);
+#endif /*VENDOR_EDIT*/
 			return rq;
 		}
 

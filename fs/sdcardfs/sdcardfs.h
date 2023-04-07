@@ -114,6 +114,14 @@ typedef enum {
 	PERM_ANDROID_PACKAGE,
 	/* This node is "/Android/[data|media|obb]/[package]/cache" */
 	PERM_ANDROID_PACKAGE_CACHE,
+#ifdef VENDOR_EDIT
+	/* This node is "/DCIM" */
+	PERM_DCIM,
+	/* This node is /Tencent */
+	PERM_TENCENT,
+	/* This node is /Tencent/MicroMsg */
+	PERM_TENCENT_MICROMSG,
+#endif /* VENDOR_EDIT */
 } perm_t;
 
 struct sdcardfs_sb_info;
@@ -150,14 +158,25 @@ extern struct inode *sdcardfs_iget(struct super_block *sb,
 				 struct inode *lower_inode, userid_t id);
 extern int sdcardfs_interpose(struct dentry *dentry, struct super_block *sb,
 			    struct path *lower_path, userid_t id);
-extern int sdcardfs_on_fscrypt_key_removed(struct notifier_block *nb,
-					   unsigned long action, void *data);
 
 /* file private data */
 struct sdcardfs_file_info {
 	struct file *lower_file;
 	const struct vm_operations_struct *lower_vm_ops;
 };
+
+#ifdef VENDOR_EDIT
+/* DCIM/Camera /DCIM/Screenshots */
+#define OPPO_PICTURE_BASE		0x00000001
+/* /.ColorOSGalleryRecycler */
+#define OPPO_PICTURE_RECYCLER	0x00000002
+/* /DCIM/MyAlbums */
+#define OPPO_PICTURE_ALBUMS		0x00000004
+/* /Tencent/MicroMsg/WeiXin */
+#define OPPO_PICTURE_TENCENT_MM	0x00000008
+/* /Tencent/QQ_Images /Tencent/QQfile_recv */
+#define OPPO_PICTURE_TENCENT_QQ	0x00000010
+#endif /* VENDOR_EDIT */
 
 struct sdcardfs_inode_data {
 	struct kref refcount;
@@ -169,6 +188,9 @@ struct sdcardfs_inode_data {
 	bool under_android;
 	bool under_cache;
 	bool under_obb;
+#ifdef VENDOR_EDIT
+	unsigned int oppo_flags;
+#endif /* VENDOR_EDIT */
 };
 
 /* sdcardfs inode data in memory */
@@ -225,7 +247,6 @@ struct sdcardfs_sb_info {
 	struct path obbpath;
 	void *pkgl_id;
 	struct list_head list;
-	struct notifier_block fscrypt_nb;
 };
 
 /*
@@ -653,5 +674,12 @@ static inline bool qstr_case_eq(const struct qstr *q1, const struct qstr *q2)
 }
 
 #define QSTR_LITERAL(string) QSTR_INIT(string, sizeof(string)-1)
+
+#ifdef VENDOR_EDIT
+int sdcardfs_unlink_uevent(struct dentry *dentry, unsigned int mask);
+int is_oppo_skiped(unsigned int mask);
+void sdcardfs_rename_record(struct dentry *old_dentry, struct dentry *new_dentry);
+int sdcardfs_allunlink_uevent(struct dentry *dentry);
+#endif /* VENDOR_EDIT */
 
 #endif	/* not _SDCARDFS_H_ */

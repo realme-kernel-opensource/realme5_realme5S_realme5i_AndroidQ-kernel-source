@@ -12,6 +12,9 @@ extern const char linux_banner[];
 extern const char linux_proc_banner[];
 
 #define PRINTK_MAX_SINGLE_HEADER_LEN 2
+#ifdef VENDOR_EDIT
+extern bool oem_get_uartlog_status(void);
+#endif /*VENDOR_EDIT*/
 
 static inline int printk_get_level(const char *buffer)
 {

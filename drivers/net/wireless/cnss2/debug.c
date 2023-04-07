@@ -106,9 +106,6 @@ static int cnss_stats_show_state(struct seq_file *s,
 		case CNSS_DRIVER_DEBUG:
 			seq_puts(s, "DRIVER_DEBUG");
 			continue;
-		case CNSS_IN_SUSPEND_RESUME:
-			seq_puts(s, "IN_SUSPEND_RESUME");
-			continue;
 		}
 
 		seq_printf(s, "UNKNOWN-%d", i);
@@ -605,9 +602,6 @@ static int cnss_show_quirks_state(struct seq_file *s,
 			continue;
 		case ENABLE_DAEMON_SUPPORT:
 			seq_puts(s, "DAEMON_SUPPORT");
-			continue;
-		case IGNORE_PCI_LINK_FAILURE:
-			seq_puts(s, "IGNORE_PCI_LINK_FAILURE");
 			continue;
 		}
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, 2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -74,8 +74,8 @@ static struct cluster_data cluster_state[MAX_CLUSTERS];
 static unsigned int num_clusters;
 
 #define for_each_cluster(cluster, idx) \
-	for (; (idx) < num_clusters && ((cluster) = &cluster_state[idx]);\
-		(idx)++)
+	for ((cluster) = &cluster_state[idx]; (idx) < num_clusters;\
+		(idx)++, (cluster) = &cluster_state[idx])
 
 static DEFINE_SPINLOCK(state_lock);
 static void apply_need(struct cluster_data *state);
@@ -131,6 +131,24 @@ static ssize_t show_max_cpus(const struct cluster_data *state, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", state->max_cpus);
 }
+
+#ifdef VENDOR_EDIT
+int hypnus_set_min_max_cpus(unsigned int index, unsigned int min, unsigned int max)
+{
+        struct cluster_data *state;
+
+        if (index >= num_clusters)
+                return -EINVAL;
+
+        state = &cluster_state[index];
+
+        state->max_cpus = min(max, state->num_cpus);
+        state->min_cpus = min(min, state->max_cpus);
+        cpuset_next(state);
+        wake_up_core_ctl_thread(state);
+        return 0;
+}
+#endif /* VENDOR_EDIT */
 
 static ssize_t store_offline_delay_ms(struct cluster_data *state,
 					const char *buf, size_t count)
@@ -819,7 +837,7 @@ static u64 core_ctl_check_timestamp;
 int core_ctl_set_boost(bool boost)
 {
 	unsigned int index = 0;
-	struct cluster_data *cluster = NULL;
+	struct cluster_data *cluster;
 	unsigned long flags;
 	int ret = 0;
 	bool boost_state_changed = false;
@@ -850,8 +868,7 @@ int core_ctl_set_boost(bool boost)
 			apply_need(cluster);
 	}
 
-	if (cluster)
-		trace_core_ctl_set_boost(cluster->boost, ret);
+	trace_core_ctl_set_boost(cluster->boost, ret);
 
 	return ret;
 }

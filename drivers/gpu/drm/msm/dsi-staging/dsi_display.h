@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, The Linux Foundation.All rights reserved.
+ * Copyright (c) 2015-2019, The Linux Foundation.All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,9 @@
 #include "dsi_ctrl.h"
 #include "dsi_phy.h"
 #include "dsi_panel.h"
+#ifdef VENDOR_EDIT
+#include <linux/dsi_oppo_support.h>
+#endif /*VENDOR_EDIT*/
 
 #define DSI_CLIENT_NAME_SIZE		20
 #define MAX_CMDLINE_PARAM_LEN	 512
@@ -114,8 +117,7 @@ struct dsi_display_boot_param {
  * struct dsi_display_clk_info - dsi display clock source information
  * @src_clks:          Source clocks for DSI display.
  * @mux_clks:          Mux clocks used for DFPS.
- * @shadow_clks:       Used for D-phy clock switch
- * @shadow_cphy_clks:  Used for C-phy clock switch
+ * @shadow_clks:       Used for DFPS.
  * @xo_clks:           XO clocks for DSI display
  */
 struct dsi_display_clk_info {
@@ -123,7 +125,6 @@ struct dsi_display_clk_info {
 	struct dsi_clk_link_set mux_clks;
 	struct dsi_clk_link_set cphy_clks;
 	struct dsi_clk_link_set shadow_clks;
-	struct dsi_clk_link_set shadow_cphy_clks;
 	struct dsi_clk_link_set xo_clks;
 };
 
@@ -614,6 +615,14 @@ void dsi_display_enable_event(struct drm_connector *connector,
 int dsi_display_set_backlight(struct drm_connector *connector,
 		void *display, u32 bl_lvl);
 
+//#ifdef ODM_WT_EDIT
+int dsi_display_set_cabc_mode(struct drm_connector *connector,
+		void *display, u32 cabc_mode);
+
+int dsi_display_get_cabc_mode(struct drm_connector *connector,
+		void *display, unsigned int *cabc_mode);
+//#endif /* ODM_WT_EDIT */
+
 /**
  * dsi_display_check_status() - check if panel is dead or alive
  * @connector:          Pointer to drm connector structure
@@ -702,6 +711,14 @@ enum dsi_pixel_format dsi_display_get_dst_format(
  * Return: Zero on Success
  */
 int dsi_display_cont_splash_config(void *display);
+#ifdef VENDOR_EDIT
+struct dsi_display *get_main_display(void);
+
+/* Add for implement panel register read */
+int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display);
+int dsi_display_cmd_engine_enable(struct dsi_display *display);
+int dsi_display_cmd_engine_disable(struct dsi_display *display);
+#endif
 /*
  * dsi_display_get_panel_vfp - get panel vsync
  * @display: Pointer to private display structure

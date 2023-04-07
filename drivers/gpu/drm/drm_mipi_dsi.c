@@ -35,6 +35,10 @@
 
 #include <video/mipi_display.h>
 
+#ifdef VENDOR_EDIT
+extern int himax_backlight_off;
+#endif
+
 /**
  * DOC: dsi helpers
  *
@@ -365,6 +369,25 @@ static ssize_t mipi_dsi_device_transfer(struct mipi_dsi_device *dsi,
 	return ops->transfer(dsi->host, msg);
 }
 
+#ifdef VENDOR_EDIT
+static ssize_t oppo_mipi_dsi_device_transfer(struct mipi_dsi_device *dsi,
+					struct mipi_dsi_msg *msg, u8 last)
+{
+	const struct mipi_dsi_host_ops *ops = dsi->host->ops;
+
+	if (!ops || !ops->transfer)
+		return -ENOSYS;
+
+	if (dsi->mode_flags & MIPI_DSI_MODE_LPM)
+		msg->flags |= MIPI_DSI_MSG_USE_LPM;
+
+	if (last)
+		msg->flags |= MIPI_DSI_MSG_LASTCOMMAND;
+
+	return ops->transfer(dsi->host, msg);
+}
+#endif
+
 /**
  * mipi_dsi_packet_format_is_short - check if a packet is of the short format
  * @type: MIPI DSI data type of the packet
@@ -680,6 +703,45 @@ ssize_t mipi_dsi_dcs_write_buffer(struct mipi_dsi_device *dsi,
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_write_buffer);
 
+#ifdef VENDOR_EDIT
+ssize_t oppo_mipi_dsi_write_buffer(struct mipi_dsi_device *dsi,
+				  const void *data, size_t len, u8 last, int is_ili)
+{
+	struct mipi_dsi_msg msg = {
+		.channel = dsi->channel,
+		.tx_buf = data,
+		.tx_len = len
+	};
+
+	switch (len) {
+	case 0:
+		return -EINVAL;
+
+	case 1:
+		msg.type = MIPI_DSI_DCS_SHORT_WRITE;
+		break;
+
+	case 2:
+		if (is_ili == 1) {
+			msg.type = MIPI_DSI_GENERIC_LONG_WRITE;
+		} else {
+			msg.type = MIPI_DSI_DCS_SHORT_WRITE_PARAM;
+		}
+		break;
+
+	default:
+		if (is_ili == 1) {
+			msg.type = MIPI_DSI_GENERIC_LONG_WRITE;
+		} else {
+			msg.type = MIPI_DSI_DCS_LONG_WRITE;
+		}
+		break;
+	}
+
+	return oppo_mipi_dsi_device_transfer(dsi, &msg, last);
+}
+#endif
+
 /**
  * mipi_dsi_dcs_write() - send DCS write command
  * @dsi: DSI peripheral device
@@ -723,6 +785,38 @@ ssize_t mipi_dsi_dcs_write(struct mipi_dsi_device *dsi, u8 cmd,
 	return err;
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_write);
+
+#ifdef VENDOR_EDIT
+ssize_t oppo_mipi_dsi_write(struct mipi_dsi_device *dsi, u8 cmd,
+			   const void *data, size_t len, u8 last, int is_ili)
+{
+	ssize_t err;
+	size_t size;
+	u8 *tx;
+
+	if (len > 0) {
+		size = 1 + len;
+
+		tx = kmalloc(size, GFP_KERNEL);
+		if (!tx)
+			return -ENOMEM;
+
+		/* concatenate the DCS command byte and the payload */
+		tx[0] = cmd;
+		memcpy(&tx[1], data, len);
+	} else {
+		tx = &cmd;
+		size = 1;
+	}
+
+	err = oppo_mipi_dsi_write_buffer(dsi, tx, size, last, is_ili);
+
+	if (len > 0)
+		kfree(tx);
+
+	return err;
+}
+#endif
 
 /**
  * mipi_dsi_dcs_read() - send DCS read request command
@@ -1055,7 +1149,12 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness)
 {
-	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+	//#ifdef VENDOR_EDIT
+	/* ensure backlight display normal */
+	//u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+	  u8 payload[2] = { brightness >> 8, brightness & 0xff };
+	//#endif
+
 	ssize_t err;
 
 	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
@@ -1066,6 +1165,99 @@ int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 	return 0;
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_set_display_brightness);
+
+#ifdef VENDOR_EDIT
+/**
+ * oppo_mipi_dsi_dcs_set_display_brightness() - sets the brightness value of the
+ *    display
+ * @dsi: DSI peripheral device
+ * @brightness: brightness value
+ *
+ * Return: 0 on success or a negative error code on failure.
+ */
+int oppo_mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
+					u16 brightness,  int is_ili)
+{
+	ssize_t err;
+	u8 payload[2] = {0x00, 0x00};
+
+	if (is_ili == 1)
+		brightness =  brightness << 1;
+
+	payload[0] = brightness >> 8;
+	payload[1] = brightness & 0xff;
+
+	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				 payload, sizeof(payload));
+	if (err < 0)
+		return err;
+
+	return 0;
+}
+EXPORT_SYMBOL(oppo_mipi_dsi_dcs_set_display_brightness);
+#endif
+
+
+#ifdef VENDOR_EDIT
+/* set backlight display for himax 11bit brightness*/
+int mipi_dsi_dcs_set_display_brightness_himax(struct mipi_dsi_device *dsi,
+					u16 brightness)
+{
+
+	u8 payload[2] = { ((brightness&0x7ff) << 1) >>8, (((brightness&0x7ff)<<1) &0x00ff) };
+
+
+	ssize_t err;
+
+	pr_err("himax_backlight_off = %d\n",himax_backlight_off);
+
+#ifdef VENDOR_EDIT
+/* make sure MIPI is powered off before backlight when suspend and power off */
+	if (brightness == 0 && himax_backlight_off == 1) {
+		printk("dimming off\n");
+		payload[0] = 0x24;
+		err = mipi_dsi_dcs_write(dsi, MIPI_DCS_WRITE_CONTROL_DISPLAY,
+				 payload, 1);
+		if (err < 0)
+			printk("write MIPI_DCS_WRITE_CONTROL_DISPLAY error\n");
+		payload[0] = 0x00;
+		payload[1] = 0x00;
+		err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_CABC_MIN_BRIGHTNESS,
+				 payload, sizeof(payload));
+		if (err < 0)
+			printk("write MIPI_DCS_SET_CABC_MIN_BRIGHTNESS error\n");
+
+		himax_backlight_off=0;
+		pr_err("dimming off and himax_backlight_off = %d\n",himax_backlight_off);
+	}
+#endif
+	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				 payload, sizeof(payload));
+	if (err < 0)
+		return err;
+
+	return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_set_display_brightness_himax);
+#endif
+
+//#ifdef ODM_WT_EDIT
+int mipi_dsi_dcs_set_display_cabc(struct mipi_dsi_device *dsi,
+									u32 cabc_mode)
+{
+	u8 payload[1];
+	ssize_t err;
+	payload[0] = (u8)cabc_mode;
+	pr_info("func:%s cabc mode:%d\n",__func__,payload[0]);
+	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_WRITE_POWER_SAVE,
+				 payload, sizeof(payload));
+	if (err < 0)
+		return err;
+
+	return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_set_display_cabc);
+//#endif /* ODM_WT_EDIT */
 
 /**
  * mipi_dsi_dcs_get_display_brightness() - gets the current brightness value

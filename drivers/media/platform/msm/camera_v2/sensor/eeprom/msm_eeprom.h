@@ -46,6 +46,35 @@ struct msm_eeprom_ctrl_t {
 	int32_t userspace_probe;
 	struct msm_eeprom_memory_block_t cal_data;
 	uint8_t is_supported;
+#ifdef VENDOR_EDIT
+	/*from dts*/
+	int32_t position;
+	/*for proc file*/
+	uint16_t module_info;
+	uint16_t vcm_info;
+	uint16_t date_info;
+	uint16_t lens_id;
+	uint16_t vcm_id;
+	char sensor_info[20];
+	bool mprobe;
+#endif
 };
+
+#ifdef VENDOR_EDIT
+	struct vcm_id_info {
+		uint16_t  vcm_id;
+		uint16_t  actuator_id;  //we conver vcmid to actuator id
+		char  alps_name[20];
+	};
+	struct lens_id_info {
+		uint16_t  lens_id;
+		uint16_t  user_lens_id;  //we conver lens_id to user lens id
+		char  lens_info[20];
+	};
+	struct sensor_string_info {
+		uint16_t value;
+		char string[20];
+	};
+#endif
 
 #endif

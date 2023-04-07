@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,8 +26,6 @@
 #define MAX_DESC 16
 #define SMEM_AARM_PARTITION_TABLE 9
 #define SMEM_APPS 0
-#define ONE_CODEWORD_SIZE 516
-
 static bool enable_euclean;
 static bool enable_perfstats;
 
@@ -883,12 +881,10 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 	struct version nandc_version = {0};
 
 	ret = msm_nand_version_check(info, &nandc_version);
-	if (!ret && !((nandc_version.nand_major == 1 &&
+	if (!ret && !(nandc_version.nand_major == 1 &&
 			nandc_version.nand_minor >= 5 &&
 			nandc_version.qpic_major == 1 &&
-			nandc_version.qpic_minor >= 5) ||
-			(nandc_version.nand_major >= 2 &&
-			nandc_version.qpic_major >= 2))) {
+			nandc_version.qpic_minor >= 5)) {
 		ret = -EPERM;
 		goto out;
 	}
@@ -1056,9 +1052,8 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 	flash->blksize  = onfi_param_page_ptr->number_of_pages_per_block *
 					flash->pagesize;
 	flash->oobsize  = onfi_param_page_ptr->number_of_spare_bytes_per_page;
-	flash->density  = onfi_param_page_ptr->number_of_logical_units *
-		onfi_param_page_ptr->number_of_blocks_per_logical_unit *
-					flash->blksize;
+	flash->density  = onfi_param_page_ptr->number_of_blocks_per_logical_unit
+					* flash->blksize;
 	flash->ecc_correctability =
 			onfi_param_page_ptr->number_of_bits_ecc_correctability;
 
@@ -1186,16 +1181,10 @@ static int msm_nand_validate_mtd_params(struct mtd_info *mtd, bool read,
 			err = -EINVAL;
 			goto out;
 		}
-		if (ops->len <= ONE_CODEWORD_SIZE)
-			args->page_count = 1;
-		else
-			args->page_count = ops->len /
-				(mtd->writesize + mtd->oobsize);
+		args->page_count = ops->len / (mtd->writesize + mtd->oobsize);
 
 	} else if (ops->mode == MTD_OPS_AUTO_OOB) {
-		if (ops->datbuf && (ops->len %
-			((ops->len <= ONE_CODEWORD_SIZE) ?
-			ONE_CODEWORD_SIZE : mtd->writesize)) != 0) {
+		if (ops->datbuf && (ops->len % mtd->writesize) != 0) {
 			/* when ops->datbuf is NULL, ops->len can be ooblen */
 			pr_err("unsupported data len %d for AUTO mode\n",
 					ops->len);
@@ -1208,10 +1197,7 @@ static int msm_nand_validate_mtd_params(struct mtd_info *mtd, bool read,
 			if ((args->page_count == 0) && (ops->ooblen))
 				args->page_count = 1;
 		} else if (ops->datbuf) {
-			if (ops->len <= ONE_CODEWORD_SIZE)
-				args->page_count = 1;
-			else
-				args->page_count = ops->len / mtd->writesize;
+			args->page_count = ops->len / mtd->writesize;
 		}
 	}
 
@@ -1257,20 +1243,12 @@ static void msm_nand_update_rw_reg_data(struct msm_nand_chip *chip,
 					struct msm_nand_rw_params *args,
 					struct msm_nand_rw_reg_data *data)
 {
-	/*
-	 * While reading one codeword, CW_PER_PAGE bits of  QPIC_NAND_DEV0_CFG0
-	 * should be set to 0, which implies 1 codeword per page. 'n' below,
-	 * is used to configure cfg0 for reading one full page or one single
-	 * codeword.
-	 */
-	int n = (ops->len <= ONE_CODEWORD_SIZE) ? args->cwperpage : 1;
-
 	if (args->read) {
 		if (ops->mode != MTD_OPS_RAW) {
 			data->cmd = MSM_NAND_CMD_PAGE_READ_ECC;
 			data->cfg0 =
 			(chip->cfg0 & ~(7U << CW_PER_PAGE)) |
-			(((args->cwperpage-n) - args->start_sector)
+			(((args->cwperpage-1) - args->start_sector)
 			 << CW_PER_PAGE);
 			data->cfg1 = chip->cfg1;
 			data->ecc_bch_cfg = chip->ecc_bch_cfg;
@@ -1278,7 +1256,7 @@ static void msm_nand_update_rw_reg_data(struct msm_nand_chip *chip,
 			data->cmd = MSM_NAND_CMD_PAGE_READ_ALL;
 			data->cfg0 =
 			(chip->cfg0_raw & ~(7U << CW_PER_PAGE)) |
-			(((args->cwperpage-n) - args->start_sector)
+			(((args->cwperpage-1) - args->start_sector)
 			 << CW_PER_PAGE);
 			data->cfg1 = chip->cfg1_raw;
 			data->ecc_bch_cfg = chip->ecc_cfg_raw;
@@ -1322,11 +1300,6 @@ static void msm_nand_prep_rw_cmd_desc(struct mtd_oob_ops *ops,
 	uint32_t offset, size, last_read;
 	struct sps_command_element *curr_ce, *start_ce;
 	uint32_t *flags_ptr, *num_ce_ptr;
-	/*
-	 * Variable to configure read_location register parameters
-	 * while reading one codeword or one full page
-	 */
-	int n = (ops->len <= ONE_CODEWORD_SIZE) ? args->cwperpage : 1;
 
 	if (curr_cw == args->start_sector) {
 		curr_ce = start_ce = &cmd_list->setup_desc.ce[0];
@@ -1419,15 +1392,10 @@ static void msm_nand_prep_rw_cmd_desc(struct mtd_oob_ops *ops,
 	if (ops->mode == MTD_OPS_AUTO_OOB) {
 		if (ops->datbuf) {
 			offset = 0;
-			if (ops->len <= ONE_CODEWORD_SIZE) {
-				size = ONE_CODEWORD_SIZE;
-				last_read = 1;
-			} else {
-				size = (curr_cw < (args->cwperpage - 1)) ? 516 :
-					(512 - ((args->cwperpage - 1) << 2));
-				last_read = (curr_cw < (args->cwperpage - 1)) ?
-					1 : (ops->oobbuf ? 0 : 1);
-			}
+			size = (curr_cw < (args->cwperpage - 1)) ? 516 :
+				(512 - ((args->cwperpage - 1) << 2));
+			last_read = (curr_cw < (args->cwperpage - 1)) ? 1 :
+				(ops->oobbuf ? 0 : 1);
 			rdata = (offset << 0) | (size << 16) |
 				(last_read << 31);
 
@@ -1443,7 +1411,7 @@ static void msm_nand_prep_rw_cmd_desc(struct mtd_oob_ops *ops,
 				curr_ce++;
 			}
 		}
-		if (curr_cw == (args->cwperpage - n) && ops->oobbuf) {
+		if (curr_cw == (args->cwperpage - 1) && ops->oobbuf) {
 			offset = 512 - ((args->cwperpage - 1) << 2);
 			size = (args->cwperpage) << 2;
 			if (size > args->oob_len_cmd)
@@ -1501,11 +1469,6 @@ static int msm_nand_submit_rw_data_desc(struct mtd_oob_ops *ops,
 	uint32_t sectordatasize, sectoroobsize;
 	uint32_t sps_flags = 0;
 	int err = 0;
-	/*
-	 * Variable to configure sectordatasize and sectoroobsize
-	 * while reading one codeword or one full page.
-	 */
-	int n = (ops->len <= ONE_CODEWORD_SIZE) ? args->cwperpage : 1;
 
 	if (args->read)
 		data_pipe_handle = info->sps.data_prod.handle;
@@ -1514,7 +1477,7 @@ static int msm_nand_submit_rw_data_desc(struct mtd_oob_ops *ops,
 
 	if (ops->mode == MTD_OPS_RAW) {
 		if (ecc_parity_bytes && args->read) {
-			if (curr_cw == (args->cwperpage - n))
+			if (curr_cw == (args->cwperpage - 1))
 				sps_flags |= SPS_IOVEC_FLAG_INT;
 
 			/* read only ecc bytes */
@@ -1529,7 +1492,7 @@ static int msm_nand_submit_rw_data_desc(struct mtd_oob_ops *ops,
 			sectordatasize = chip->cw_size;
 			if (!args->read)
 				sps_flags = SPS_IOVEC_FLAG_EOT;
-			if (curr_cw == (args->cwperpage - n))
+			if (curr_cw == (args->cwperpage - 1))
 				sps_flags |= SPS_IOVEC_FLAG_INT;
 
 			err = sps_transfer_one(data_pipe_handle,
@@ -1542,13 +1505,8 @@ static int msm_nand_submit_rw_data_desc(struct mtd_oob_ops *ops,
 		}
 	} else if (ops->mode == MTD_OPS_AUTO_OOB) {
 		if (ops->datbuf) {
-			if (ops->len <= ONE_CODEWORD_SIZE)
-				sectordatasize = ONE_CODEWORD_SIZE;
-			else
-				sectordatasize =
-					(curr_cw < (args->cwperpage - 1))
-					? 516 :
-					(512 - ((args->cwperpage - 1) << 2));
+			sectordatasize = (curr_cw < (args->cwperpage - 1))
+			? 516 : (512 - ((args->cwperpage - 1) << 2));
 
 			if (!args->read) {
 				sps_flags = SPS_IOVEC_FLAG_EOT;
@@ -1556,7 +1514,7 @@ static int msm_nand_submit_rw_data_desc(struct mtd_oob_ops *ops,
 						ops->oobbuf)
 					sps_flags = 0;
 			}
-			if ((curr_cw == (args->cwperpage - n)) && !ops->oobbuf)
+			if ((curr_cw == (args->cwperpage - 1)) && !ops->oobbuf)
 				sps_flags |= SPS_IOVEC_FLAG_INT;
 
 			err = sps_transfer_one(data_pipe_handle,
@@ -1568,7 +1526,7 @@ static int msm_nand_submit_rw_data_desc(struct mtd_oob_ops *ops,
 			args->data_dma_addr_curr += sectordatasize;
 		}
 
-		if (ops->oobbuf && (curr_cw == (args->cwperpage - n))) {
+		if (ops->oobbuf && (curr_cw == (args->cwperpage - 1))) {
 			sectoroobsize = args->cwperpage << 2;
 			if (sectoroobsize > args->oob_len_data)
 				sectoroobsize = args->oob_len_data;
@@ -1850,7 +1808,7 @@ static int msm_nand_is_erased_page_ps(struct mtd_info *mtd, loff_t from,
 			/* This extra +1 is for oobbuf case */
 		} result[MAX_CW_PER_PAGE + 1];
 	} *dma_buffer;
-	uint8_t *ecc, *ecc_temp;
+	uint8_t *ecc;
 
 	total_ecc_byte_cnt = (chip->ecc_parity_bytes * cwperpage);
 	memcpy(&raw_ops, ops, sizeof(struct mtd_oob_ops));
@@ -2023,8 +1981,8 @@ free_dma:
 	dma_unmap_single(chip->dev, rw_params->ecc_dma_addr,
 			total_ecc_byte_cnt, DMA_FROM_DEVICE);
 	/* check for bit flips in ecc data */
-	ecc_temp = ecc;
-	for (n = rw_params->start_sector; !err && n < cwperpage; n++) {
+	for (n = rw_params->start_sector; n < cwperpage; n++) {
+		uint8_t *ecc_temp = ecc;
 		int last_pos = 0, next_pos = 0;
 		int ecc_bytes_percw_in_bits = (chip->ecc_parity_bytes * 8);
 
@@ -2035,7 +1993,7 @@ free_dma:
 			if (last_pos < ecc_bytes_percw_in_bits)
 				num_zero_bits++;
 
-			if (num_zero_bits > info->flash_dev.ecc_capability) {
+			if (num_zero_bits > 4) {
 				*erased_page = false;
 				goto free_mem;
 			}
@@ -2047,8 +2005,7 @@ free_dma:
 		ecc_temp += chip->ecc_parity_bytes;
 	}
 
-	if ((n == cwperpage) &&
-			(num_zero_bits <= info->flash_dev.ecc_capability))
+	if ((n == cwperpage) && (num_zero_bits <= 4))
 		*erased_page = true;
 free_mem:
 	kfree(ecc);
@@ -2271,33 +2228,6 @@ static int msm_nand_read_pagescope(struct mtd_info *mtd, loff_t from,
 			goto free_dma;
 		/* Check for flash status errors */
 		pageerr = rawerr = 0;
-
-		/*
-		 * PAGE_ERASED bit will set only if all
-		 * CODEWORD_ERASED bit of all codewords
-		 * of the page is set.
-		 *
-		 * PAGE_ERASED bit is a 'logical and' of all
-		 * CODEWORD_ERASED bit of all codewords i.e.
-		 * even if one codeword is detected as not
-		 * an erased codeword, PAGE_ERASED bit will unset.
-		 */
-		for (n = rw_params.start_sector; n < cwperpage; n++) {
-			if ((dma_buffer->result[n].erased_cw_status &
-					(1 << PAGE_ERASED)) &&
-					(dma_buffer->result[n].buffer_status &
-					 NUM_ERRORS)) {
-				err = msm_nand_is_erased_page_ps(mtd,
-						from, ops,
-						&rw_params,
-						&erased_page);
-				if (err)
-					goto free_dma;
-				if (erased_page)
-					rawerr = -EIO;
-				break;
-			}
-		}
 		for (n = rw_params.start_sector; n < cwperpage; n++) {
 			if (dma_buffer->result[n].flash_status & (FS_OP_ERR |
 					FS_MPU_ERR)) {
@@ -2545,7 +2475,7 @@ static int msm_nand_is_erased_page(struct mtd_info *mtd, loff_t from,
 			uint32_t erased_cw_status;
 		} result[MAX_CW_PER_PAGE];
 	} *dma_buffer;
-	uint8_t *ecc, *ecc_temp;
+	uint8_t *ecc;
 
 	pr_debug("========================================================\n");
 	total_ecc_byte_cnt = (chip->ecc_parity_bytes * cwperpage);
@@ -2691,8 +2621,8 @@ free_dma:
 	dma_unmap_single(chip->dev, rw_params->ecc_dma_addr,
 			total_ecc_byte_cnt, DMA_FROM_DEVICE);
 	/* check for bit flips in ecc data */
-	ecc_temp = ecc;
-	for (n = rw_params->start_sector; !err && n < cwperpage; n++) {
+	for (n = rw_params->start_sector; n < cwperpage; n++) {
+		uint8_t *ecc_temp = ecc;
 		int last_pos = 0, next_pos = 0;
 		int ecc_bytes_percw_in_bits = (chip->ecc_parity_bytes * 8);
 
@@ -2703,7 +2633,7 @@ free_dma:
 			if (last_pos < ecc_bytes_percw_in_bits)
 				num_zero_bits++;
 
-			if (num_zero_bits > info->flash_dev.ecc_capability) {
+			if (num_zero_bits > 4) {
 				*erased_page = false;
 				goto free_mem;
 			}
@@ -2715,8 +2645,7 @@ free_dma:
 		ecc_temp += chip->ecc_parity_bytes;
 	}
 
-	if ((n == cwperpage) &&
-			(num_zero_bits <= info->flash_dev.ecc_capability))
+	if ((n == cwperpage) && (num_zero_bits <= 4))
 		*erased_page = true;
 free_mem:
 	kfree(ecc);
@@ -2797,9 +2726,6 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 		data.addr0 = (rw_params.page << 16) | rw_params.oob_col;
 		data.addr1 = (rw_params.page >> 16) & 0xff;
 
-		if (ops->len <= ONE_CODEWORD_SIZE)
-			cwperpage = 1;
-
 		for (n = rw_params.start_sector; n < cwperpage; n++) {
 			struct sps_command_element *curr_ce, *start_ce;
 
@@ -2877,7 +2803,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 		} else if (ops->mode == MTD_OPS_AUTO_OOB) {
 			if (ops->datbuf)
 				submitted_num_desc = cwperpage -
-					rw_params.start_sector;
+							rw_params.start_sector;
 			if (ops->oobbuf)
 				submitted_num_desc++;
 		}
@@ -2914,33 +2840,6 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			goto free_dma;
 		/* Check for flash status errors */
 		pageerr = rawerr = 0;
-
-		/*
-		 * PAGE_ERASED bit will set only if all
-		 * CODEWORD_ERASED bit of all codewords
-		 * of the page is set.
-		 *
-		 * PAGE_ERASED bit is a 'logical and' of all
-		 * CODEWORD_ERASED bit of all codewords i.e.
-		 * even if one codeword is detected as not
-		 * an erased codeword, PAGE_ERASED bit will unset.
-		 */
-		for (n = rw_params.start_sector; n < cwperpage; n++) {
-			if ((dma_buffer->result[n].erased_cw_status &
-					(1 << PAGE_ERASED)) &&
-					(dma_buffer->result[n].buffer_status &
-					 NUM_ERRORS)) {
-				err = msm_nand_is_erased_page(mtd,
-						from, ops,
-						&rw_params,
-						&erased_page);
-				if (err)
-					goto free_dma;
-				if (erased_page)
-					rawerr = -EIO;
-				break;
-			}
-		}
 		for (n = rw_params.start_sector; n < cwperpage; n++) {
 			if (dma_buffer->result[n].flash_status & (FS_OP_ERR |
 					FS_MPU_ERR)) {
@@ -3097,10 +2996,7 @@ free_dma:
 	}
 validate_mtd_params_failed:
 	if (ops->mode != MTD_OPS_RAW)
-		if (ops->len <= ONE_CODEWORD_SIZE)
-			ops->retlen = ONE_CODEWORD_SIZE;
-		else
-			ops->retlen = mtd->writesize * pages_read;
+		ops->retlen = mtd->writesize * pages_read;
 	else
 		ops->retlen = (mtd->writesize +  mtd->oobsize) * pages_read;
 	ops->oobretlen = ops->ooblen - rw_params.oob_len_data;
@@ -3173,11 +3069,8 @@ static int msm_nand_read_partial_page(struct mtd_info *mtd,
 		ops->datbuf = no_copy ? actual_buf : bounce_buf;
 		if (info->nand_chip.caps & MSM_NAND_CAP_PAGE_SCOPE_READ)
 			err = msm_nand_read_pagescope(mtd, aligned_from, ops);
-		else {
-			if ((len <= ONE_CODEWORD_SIZE) && (offset == 0))
-				ops->len = ONE_CODEWORD_SIZE;
+		else
 			err = msm_nand_read_oob(mtd, aligned_from, ops);
-		}
 		if (err == -EUCLEAN) {
 			is_euclean = 1;
 			err = 0;
@@ -3697,12 +3590,7 @@ static int msm_nand_erase(struct mtd_info *mtd, struct erase_info *instr)
 	data.cfg.cmd = MSM_NAND_CMD_BLOCK_ERASE;
 	data.cfg.addr0 = page;
 	data.cfg.addr1 = 0;
-	data.cfg.cfg0 = chip->cfg0 & (~((7 << CW_PER_PAGE)
-					| (7 << NUM_ADDR_CYCLES)));
-	if (mtd->size >= SZ_256M)
-		data.cfg.cfg0 = data.cfg.cfg0 | (3 << NUM_ADDR_CYCLES);
-	else
-		data.cfg.cfg0 = data.cfg.cfg0 | (2 << NUM_ADDR_CYCLES);
+	data.cfg.cfg0 = chip->cfg0 & (~(7 << CW_PER_PAGE));
 	data.cfg.cfg1 = chip->cfg1;
 	data.exec = 1;
 	dma_buffer->flash_status = 0xeeeeeeee;
@@ -4752,6 +4640,7 @@ static int msm_nand_probe(struct platform_device *pdev)
 	}
 	info->nand_chip.qpic_version = qpic_version.qpic_major;
 	if (info->nand_chip.qpic_version >= 2) {
+		info->nand_chip.caps = MSM_NAND_CAP_PAGE_SCOPE_READ;
 		mutex_lock(&info->lock);
 		err = msm_nand_get_device(info->nand_chip.dev);
 		if (err) {

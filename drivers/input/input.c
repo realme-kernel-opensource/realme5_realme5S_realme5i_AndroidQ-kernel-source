@@ -371,6 +371,10 @@ static void input_handle_event(struct input_dev *dev,
 {
 	int disposition = input_get_disposition(dev, type, code, &value);
 
+#ifdef VENDOR_EDIT
+	oppo_sync_key_event(type, code, value);
+#endif
+
 	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
 		add_input_randomness(type, code, value);
 
@@ -870,6 +874,7 @@ static int input_default_setkeycode(struct input_dev *dev,
 	}
 
 	__set_bit(ke->keycode, dev->keybit);
+
 	return 0;
 }
 
@@ -927,11 +932,10 @@ int input_set_keycode(struct input_dev *dev,
 	 */
 	if (old_keycode > KEY_MAX) {
 		dev_warn(dev->dev.parent ?: &dev->dev,
-			 "%s: got too big old keycode %#x\n",
-			 __func__, old_keycode);
+			"%s: got too big old keycode %#x\n", __func__, old_keycode);
 	} else if (test_bit(EV_KEY, dev->evbit) &&
-		   !is_event_supported(old_keycode, dev->keybit, KEY_MAX) &&
-		   __test_and_clear_bit(old_keycode, dev->key)) {
+		!is_event_supported(old_keycode, dev->keybit, KEY_MAX) &&
+		__test_and_clear_bit(old_keycode, dev->key)) {
 		struct input_value vals[] =  {
 			{ EV_KEY, old_keycode, 0 },
 			input_value_sync
